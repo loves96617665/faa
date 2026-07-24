@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DaFreeAi Studio · Cloudflare</title>
-  <!-- build: 2026-07-24-v5-gpt2-smart -->
-  <link rel="stylesheet" href="/css/style.css?v=20260724v5" />
+  <!-- build: 2026-07-24-v6-account-pool -->
+  <link rel="stylesheet" href="/css/style.css?v=20260724v6" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 </head>
@@ -18,14 +18,14 @@
       <div class="logo">D</div>
       <div>
         <h1>DaFreeAi Studio</h1>
-        <p class="subtitle">Cloudflare Worker · API Keys · /v1 · 憑證存瀏覽器</p>
+        <p class="subtitle">Cloudflare Worker · API Keys · Account Pool · /v1 · credentials in browser</p>
       </div>
     </div>
     <div class="header-actions">
-      <span id="auth-badge" class="badge">未登入</span>
-      <a class="link" href="/docs.html" target="_blank" rel="noopener">API 文件</a>
-      <a class="link" href="https://www.dafreeai.site" target="_blank" rel="noopener">官網</a>
-      <button id="btn-refresh-status" class="btn btn-ghost" type="button">重新整理狀態</button>
+      <span id="auth-badge" class="badge">未登入 / Logged out</span>
+      <a class="link" href="/docs.html" target="_blank" rel="noopener">API Docs</a>
+      <a class="link" href="https://www.dafreeai.site" target="_blank" rel="noopener">Official site</a>
+      <button id="btn-refresh-status" class="btn btn-ghost" type="button">Refresh status</button>
     </div>
   </header>
 
@@ -43,58 +43,69 @@
       <!-- Auth -->
       <div id="panel-auth" class="tab-panel active">
         <div class="info-box">
-          Phase 1：token 只存在此瀏覽器 <code>localStorage</code>，伺服器不保存。
-          建議官網 Console 執行
+          <strong>登入說明 / Login guide</strong><br />
+          Phase 1：token 只存在此瀏覽器 <code>localStorage</code>，伺服器不保存個人 token。<br />
+          Phase 1: your personal token stays in this browser’s <code>localStorage</code> only — the server does not store it.<br /><br />
+          建議在官網 Console 執行
           <code>copy(localStorage.getItem('dafreeai_user'))</code>
-          後貼到下方。OAuth code 只能用一次。
+          後貼到下方。OAuth code 只能用一次。<br />
+          Tip: on the official site console, run
+          <code>copy(localStorage.getItem('dafreeai_user'))</code>
+          and paste below. OAuth codes are single-use.
         </div>
 
         <label class="field">
           <span>localStorage dafreeai_user JSON</span>
           <textarea id="auth-json" rows="6" placeholder='{"id":"...","token":"...","username":"..."}'></textarea>
         </label>
-        <button id="btn-save-json" class="btn btn-primary btn-block" type="button">從 JSON 登入並儲存</button>
+        <button id="btn-save-json" class="btn btn-primary btn-block" type="button">從 JSON 登入 / Login from JSON</button>
 
-        <div class="divider">或手動填入</div>
+        <div class="divider">或手動填入 / Or enter manually</div>
         <label class="field"><span>userId</span><input id="auth-uid" type="text" /></label>
         <label class="field"><span>token</span><input id="auth-token" type="password" /></label>
-        <label class="field"><span>username（可選）</span><input id="auth-name" type="text" /></label>
+        <label class="field"><span>username（可選 / optional）</span><input id="auth-name" type="text" /></label>
         <div class="row">
-          <button id="btn-save-manual" class="btn btn-primary" type="button">儲存憑證</button>
-          <button id="btn-accept-terms" class="btn btn-ghost" type="button">接受條款</button>
-          <button id="btn-logout" class="btn btn-danger" type="button">登出</button>
+          <button id="btn-save-manual" class="btn btn-primary" type="button">儲存憑證 / Save</button>
+          <button id="btn-accept-terms" class="btn btn-ghost" type="button">接受條款 / Accept terms</button>
+          <button id="btn-logout" class="btn btn-danger" type="button">登出 / Logout</button>
         </div>
 
-        <div class="divider">OAuth 輔助</div>
-        <button id="btn-login-url" class="btn btn-ghost btn-block" type="button">取得 Discord 登入連結</button>
+        <div class="divider">OAuth 輔助 / OAuth helper</div>
+        <button id="btn-login-url" class="btn btn-ghost btn-block" type="button">取得 Discord 登入連結 / Get Discord login URL</button>
         <label class="field"><span>OAuth URL</span><textarea id="oauth-url" rows="2" readonly></textarea></label>
-        <label class="field"><span>callback code</span><input id="oauth-code" type="text" placeholder="貼上 code" /></label>
-        <button id="btn-exchange" class="btn btn-secondary btn-block" type="button">用 code 換 token</button>
+        <label class="field"><span>callback code</span><input id="oauth-code" type="text" placeholder="paste code" /></label>
+        <button id="btn-exchange" class="btn btn-secondary btn-block" type="button">用 code 換 token / Exchange code</button>
         <p id="auth-status" class="status"></p>
       </div>
 
       <!-- Generate -->
       <div id="panel-generate" class="tab-panel">
         <div class="info-box">
+          <strong>生成說明 / Generation tips</strong><br />
           建議模型：<strong>nano-banana-2-lite</strong>（最穩）。
           <strong>gpt-image-2</strong> 請用 <code>quality=low</code>（medium 通常可；high 在 pool=0 常 locked）。
-          系統會自動降 quality / 失敗時 fallback 到 lite。
+          系統會自動降 quality / 失敗時 fallback 到 lite。<br />
+          Recommended model: <strong>nano-banana-2-lite</strong> (most stable).
+          For <strong>gpt-image-2</strong> use <code>quality=low</code> (medium often works; high often locks when pool credits=0).
+          Smart generate may lower quality and fall back to lite on hard errors.<br /><br />
+          若已設定帳號池，預設 <code>poolMode=auto</code> 會自動分配空閒服務帳號以支援多人並行。<br />
+          With an account pool configured, default <code>poolMode=auto</code> assigns a free service account for true multi-user parallel generation.
         </div>
         <label class="field">
-          <span>提示詞 Prompt</span>
+          <span>提示詞 / Prompt</span>
           <textarea id="gen-prompt" rows="5" placeholder="a cute orange cat, soft morning light, photorealistic"></textarea>
         </label>
 
         <div class="row">
           <label class="field">
-            <span>類型</span>
+            <span>類型 / Type</span>
             <select id="gen-type">
               <option value="image">image</option>
               <option value="video">video</option>
             </select>
           </label>
           <label class="field">
-            <span>模型</span>
+            <span>模型 / Model</span>
             <select id="gen-model"></select>
           </label>
         </div>
@@ -110,33 +121,33 @@
         </div>
         <label class="check" id="audio-field">
           <input id="gen-audio" type="checkbox" checked />
-          <span>Audio（影片）</span>
+          <span>Audio（影片 / video）</span>
         </label>
 
         <label class="field">
-          <span>參考圖 URL（可選，每行一個，最多 3）</span>
+          <span>參考圖 URL（可選，每行一個，最多 3）/ Reference image URLs (optional, one per line, max 3)</span>
           <textarea id="gen-refs" rows="2" placeholder="https://..."></textarea>
         </label>
 
         <details class="advanced">
-          <summary>進階</summary>
-          <label class="field"><span>chatId（空白=自動）</span><input id="gen-chatid" type="text" /></label>
+          <summary>進階 / Advanced</summary>
+          <label class="field"><span>chatId（空白=自動 / blank=auto）</span><input id="gen-chatid" type="text" /></label>
           <div class="row">
-            <label class="field"><span>輪詢間隔秒</span><input id="gen-poll" type="number" value="3" min="1" step="0.5" /></label>
-            <label class="field"><span>逾時秒</span><input id="gen-timeout" type="number" value="180" min="30" /></label>
+            <label class="field"><span>輪詢間隔秒 / Poll interval (s)</span><input id="gen-poll" type="number" value="3" min="1" step="0.5" /></label>
+            <label class="field"><span>逾時秒 / Timeout (s)</span><input id="gen-timeout" type="number" value="180" min="30" /></label>
           </div>
-          <p class="muted small">Phase 1 無伺服器下載；完成後請用「開啟遠端 URL」或瀏覽器另存。</p>
+          <p class="muted small">Phase 1 無伺服器下載；完成後請用「開啟遠端 URL」或瀏覽器另存。 / Phase 1 has no server-side download; open the remote URL or save from the browser.</p>
         </details>
 
         <div class="presets">
-          <span class="muted">快速填入：</span>
-          <button type="button" class="chip" data-prompt="a cute orange cat sitting on a windowsill, soft sunlight">橘貓</button>
-          <button type="button" class="chip" data-prompt="cyberpunk city at night, neon lights, rain, cinematic">賽博龐克</button>
-          <button type="button" class="chip" data-prompt="anime girl with silver hair, cherry blossoms, detailed eyes">動漫</button>
+          <span class="muted">快速填入 / Presets：</span>
+          <button type="button" class="chip" data-prompt="a cute orange cat sitting on a windowsill, soft sunlight">橘貓 / Cat</button>
+          <button type="button" class="chip" data-prompt="cyberpunk city at night, neon lights, rain, cinematic">賽博龐克 / Cyberpunk</button>
+          <button type="button" class="chip" data-prompt="anime girl with silver hair, cherry blossoms, detailed eyes">動漫 / Anime</button>
         </div>
 
         <button id="btn-generate" class="btn btn-primary btn-block" type="button">
-          <span class="btn-label">開始生成</span>
+          <span class="btn-label">開始生成 / Generate</span>
           <span class="spinner hidden"></span>
         </button>
         <p id="gen-status" class="status"></p>
@@ -144,48 +155,57 @@
 
       <!-- History -->
       <div id="panel-history" class="tab-panel">
+        <div class="info-box">
+          查看目前登入帳號的上游歷史。若 job 走帳號池，結果會在池帳號歷史中，輪詢仍可透過 jobmap 正確讀取。<br />
+          View upstream history for the logged-in account. Pool jobs are polled via jobmap even if history lives on the pool account.
+        </div>
         <div class="row">
           <label class="field"><span>limit</span><input id="hist-limit" type="number" value="15" min="1" max="50" /></label>
           <label class="field"><span>offset</span><input id="hist-offset" type="number" value="0" min="0" /></label>
         </div>
-        <button id="btn-history" class="btn btn-primary btn-block" type="button">重新整理歷史</button>
+        <button id="btn-history" class="btn btn-primary btn-block" type="button">重新整理歷史 / Refresh history</button>
         <p id="hist-summary" class="muted small"></p>
         <div id="hist-list" class="hist-list"></div>
-        <label class="field"><span>刪除 chatId</span><input id="hist-del" type="text" /></label>
-        <button id="btn-hist-del" class="btn btn-danger btn-block" type="button">刪除該 chat</button>
+        <label class="field"><span>刪除 chatId / Delete chatId</span><input id="hist-del" type="text" /></label>
+        <button id="btn-hist-del" class="btn btn-danger btn-block" type="button">刪除該 chat / Delete chat</button>
         <p id="hist-status" class="status"></p>
       </div>
 
       <!-- API Keys -->
       <div id="panel-api" class="tab-panel">
         <div class="info-box">
+          <strong>API Key 說明 / API Key intro</strong><br />
           建立 API Key 後，可用 <code>Authorization: Bearer faa_sk_...</code> 呼叫
           <code>/v1/generate</code>、<code>/v1/jobs/:id</code> 等。
           明文 key <strong>只顯示一次</strong>。完整文件見
-          <a href="/docs.html" target="_blank" rel="noopener">docs.html</a>。
+          <a href="/docs.html" target="_blank" rel="noopener">docs.html</a>。<br />
+          After creating a key, call public endpoints with
+          <code>Authorization: Bearer faa_sk_...</code>.
+          The full key is shown <strong>only once</strong>. See
+          <a href="/docs.html" target="_blank" rel="noopener">docs.html</a> for full docs.
         </div>
 
         <label class="field">
-          <span>Key 名稱</span>
+          <span>Key 名稱 / Name</span>
           <input id="key-name" type="text" placeholder="my-script" value="default" />
         </label>
-        <button id="btn-key-create" class="btn btn-primary btn-block" type="button">建立 API Key</button>
+        <button id="btn-key-create" class="btn btn-primary btn-block" type="button">建立 API Key / Create key</button>
 
         <div id="key-once-wrap" class="key-once hidden">
-          <p class="warn-text">請立即複製保存，之後無法再查看完整 key：</p>
+          <p class="warn-text">請立即複製保存，之後無法再查看完整 key / Copy now — full key will not be shown again：</p>
           <div class="row">
             <input id="key-once" type="text" readonly />
-            <button id="btn-key-copy" class="btn btn-secondary" type="button">複製</button>
+            <button id="btn-key-copy" class="btn btn-secondary" type="button">複製 / Copy</button>
           </div>
         </div>
 
-        <div class="divider">我的 Keys</div>
-        <button id="btn-key-refresh" class="btn btn-ghost btn-block" type="button">重新整理列表</button>
+        <div class="divider">我的 Keys / My keys</div>
+        <button id="btn-key-refresh" class="btn btn-ghost btn-block" type="button">重新整理列表 / Refresh list</button>
         <div id="key-list" class="key-list"></div>
         <p id="key-status" class="status"></p>
 
         <div class="divider">curl 範例 / Examples</div>
-        <pre id="key-curl" class="code-box small-code"># 建立 key 後會自動填入範例
+        <pre id="key-curl" class="code-box small-code"># 建立 key 後會自動填入範例 / filled after create
 export FAA_KEY=faa_sk_...
 export BASE=https://faa.kinai.workers.dev
 curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/models"</pre>
@@ -195,9 +215,10 @@ curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/models"</pre>
       <div id="panel-pool" class="tab-panel">
         <div class="info-box">
           <strong>服務帳號池 / Service Account Pool</strong><br />
-          綁定多組 dafreeai 憑證，生成時自動分配空閒帳號，支援多人真正並行。
-          Bind multiple dafreeai credentials; free accounts are auto-assigned for true parallel generation.
-          <br /><code>poolMode</code>: <code>auto</code>（預設）| <code>pool</code>（強制池）| <code>personal</code>（僅個人）
+          綁定多組 dafreeai 憑證，生成時自動分配空閒帳號，支援多人真正並行。<br />
+          Bind multiple dafreeai credentials; free accounts are auto-assigned for true parallel generation.<br /><br />
+          <code>poolMode</code>: <code>auto</code>（預設 / default）| <code>pool</code>（強制池 / require pool）| <code>personal</code>（僅個人 / personal only）<br />
+          真正並行需要池內至少 2 組空閒帳號。 / True concurrency needs at least 2 free pool accounts.
         </div>
 
         <div id="pool-stats" class="info-box">stats: —</div>
@@ -208,10 +229,10 @@ curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/models"</pre>
         </div>
 
         <div class="divider">手動新增 / Add manually</div>
-        <label class="field"><span>name（可選）</span><input id="pool-name" type="text" placeholder="worker-1" /></label>
+        <label class="field"><span>name（可選 / optional）</span><input id="pool-name" type="text" placeholder="worker-1" /></label>
         <label class="field"><span>userId</span><input id="pool-uid" type="text" /></label>
         <label class="field"><span>token</span><input id="pool-token" type="password" /></label>
-        <label class="field"><span>username（可選）</span><input id="pool-username" type="text" /></label>
+        <label class="field"><span>username（可選 / optional）</span><input id="pool-username" type="text" /></label>
         <button id="btn-pool-add" class="btn btn-secondary btn-block" type="button">新增到池 / Add to pool</button>
 
         <div class="divider">池內帳號 / Pool accounts</div>
@@ -221,6 +242,9 @@ curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/models"</pre>
 
       <!-- Status -->
       <div id="panel-status" class="tab-panel">
+        <div class="info-box">
+          系統狀態、上游 pool credits、登入資訊等。 / System status, upstream pool credits, login info, etc.
+        </div>
         <button id="btn-status" class="btn btn-primary btn-block" type="button">重新整理系統狀態 / Refresh status</button>
         <pre id="status-box" class="code-box">點擊重新整理… / Click refresh…</pre>
       </div>
@@ -228,26 +252,26 @@ curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/models"</pre>
 
     <section class="panel preview">
       <div class="preview-header">
-        <h2>預覽 / 結果</h2>
-        <button id="btn-gallery" class="btn btn-ghost" type="button">作品庫（Phase 2）</button>
+        <h2>預覽 / Preview</h2>
+        <button id="btn-gallery" class="btn btn-ghost" type="button">作品庫 Phase 2 / Gallery</button>
       </div>
-      <div id="result-meta" class="info-box">尚未生成</div>
+      <div id="result-meta" class="info-box">尚未生成 / No generation yet</div>
       <div id="preview-wrap" class="preview-wrap empty">
-        <p class="muted">生成完成後圖片 / 影片會顯示在這裡（遠端 URL）</p>
+        <p class="muted">生成完成後圖片 / 影片會顯示在這裡（遠端 URL） / Image or video appears here after completion (remote URL)</p>
       </div>
       <div class="preview-actions">
-        <a id="btn-open-remote" class="btn btn-ghost hidden" href="#" target="_blank" rel="noopener">開啟遠端 URL</a>
-        <a id="btn-open-local" class="btn btn-ghost hidden" href="#" target="_blank" rel="noopener">本機檔（N/A）</a>
-        <a id="btn-download-media" class="btn btn-secondary hidden" href="#" target="_blank" rel="noopener" download>另存媒體</a>
+        <a id="btn-open-remote" class="btn btn-ghost hidden" href="#" target="_blank" rel="noopener">開啟遠端 URL / Open remote</a>
+        <a id="btn-open-local" class="btn btn-ghost hidden" href="#" target="_blank" rel="noopener">本機檔 N/A / Local N/A</a>
+        <a id="btn-download-media" class="btn btn-secondary hidden" href="#" target="_blank" rel="noopener" download>另存媒體 / Save media</a>
       </div>
       <div id="gallery" class="gallery"></div>
     </section>
   </main>
 
   <footer class="footer">
-    Phase 1 · token in browser only · API Keys + Account Pool in KV · Cloudflare Worker · build 20260724v6
+    Phase 1 · token in browser only · API Keys + Account Pool in KV · Cloudflare Worker · build 20260724v6 · 中英介面 / EN+ZH UI
   </footer>
 
-  <script src="/js/app.js?v=20260724v6"></script>
+  <script src="/js/app.js?v=20260724v6en"></script>
 </body>
 </html>

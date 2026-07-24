@@ -1,75 +1,126 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DaFreeAi Studio · v1 API Docs</title>
-  <link rel="stylesheet" href="/css/style.css?v=20260724v4" />
+  <link rel="stylesheet" href="/css/style.css?v=20260724v6" />
   <style>
     .docs { max-width: 900px; margin: 0 auto; padding: 24px 20px 48px; position: relative; z-index: 1; }
     .docs h1 { font-size: 1.6rem; margin-bottom: 8px; }
-    .docs h2 { font-size: 1.15rem; margin: 28px 0 10px; }
-    .docs p, .docs li { color: var(--muted); line-height: 1.6; }
+    .docs h2 { font-size: 1.15rem; margin: 28px 0 10px; color: var(--text); }
+    .docs p, .docs li { color: var(--muted); line-height: 1.65; }
     .docs code { color: #e2e8f0; }
     .docs pre { margin: 12px 0; }
     .docs a { color: #7dd3fc; }
+    .docs .zh { color: #a5b4c8; }
+    .docs .en { color: var(--muted); }
+    .docs .tag { display: inline-block; font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); margin-right: 6px; color: #93c5fd; }
   </style>
 </head>
 <body>
   <div class="bg-glow glow-1"></div>
   <div class="bg-glow glow-2"></div>
   <div class="docs">
-    <p><a href="/">← 回到 Studio</a></p>
-    <h1>v1 API 文件</h1>
-    <p>Base: <code>https://faa.kinai.workers.dev</code></p>
+    <p><a href="/">← Back to Studio / 回到 Studio</a></p>
+    <h1>v1 API Docs <span class="tag">EN</span><span class="tag">中文</span></h1>
+    <p class="en">Public API for DaFreeAi Studio on Cloudflare Workers. Create an API key in the UI, then call <code>/v1/*</code> with Bearer auth.</p>
+    <p class="zh">Cloudflare Worker 上的公開 API。在 UI 建立 API Key 後，以 Bearer 呼叫 <code>/v1/*</code>。</p>
+    <p>Base: <code>https://faa.kinai.workers.dev</code> · Build: <code>2026-07-24-v6-account-pool</code></p>
 
-    <h2>1. 建立 API Key</h2>
+    <h2>1. Create API Key / 建立 API Key</h2>
     <ol>
-      <li>開啟 Studio → <strong>登入</strong> 貼上 dafreeai localStorage JSON</li>
-      <li>切到 <strong>API</strong> 分頁 → 建立 Key</li>
-      <li>明文 <code>faa_sk_...</code> 只顯示一次，請立即複製</li>
+      <li class="en">Open Studio → <strong>Login</strong> and paste dafreeai <code>localStorage</code> JSON</li>
+      <li class="zh">開啟 Studio → <strong>登入</strong>，貼上 dafreeai localStorage JSON</li>
+      <li class="en">Go to <strong>API</strong> tab → Create key</li>
+      <li class="zh">切到 <strong>API</strong> 分頁 → 建立 Key</li>
+      <li class="en">Plaintext <code>faa_sk_...</code> is shown <strong>once</strong> — copy immediately</li>
+      <li class="zh">明文 <code>faa_sk_...</code> 只顯示一次，請立即複製</li>
     </ol>
 
-    <h2>2. 認證</h2>
+    <h2>2. Authentication / 認證</h2>
     <pre class="code-box">Authorization: Bearer faa_sk_...</pre>
-    <p>或 <code>X-Api-Key: faa_sk_...</code></p>
+    <p>Or / 或： <code>X-Api-Key: faa_sk_...</code></p>
+    <p class="en">Session UI routes use <code>X-User-Id</code> + <code>X-User-Token</code> instead.</p>
+    <p class="zh">Studio UI 的 session 路由改用 <code>X-User-Id</code> + <code>X-User-Token</code>。</p>
 
-    <h2>3. 端點</h2>
+    <h2>3. Endpoints / 端點</h2>
     <ul>
-      <li><code>GET /v1/models</code> — 模型列表</li>
-      <li><code>GET /v1/me</code> — 帳號 / 餘額 / key 資訊</li>
-      <li><code>POST /v1/generate</code> — 提交生成（非阻塞）</li>
-      <li><code>GET /v1/jobs/:jobId</code> — 輪詢結果</li>
-      <li><code>GET /v1/history</code> — 歷史</li>
+      <li><code>GET /v1/models</code> — model list / 模型列表</li>
+      <li><code>GET /v1/me</code> — account / balance / key info · 帳號 / 餘額 / key 資訊</li>
+      <li><code>POST /v1/generate</code> — submit generation (async) · 提交生成（非阻塞）</li>
+      <li><code>GET /v1/jobs/:jobId</code> — poll result · 輪詢結果</li>
+      <li><code>GET /v1/history</code> — history · 歷史</li>
     </ul>
+    <p class="en">Pool management (session auth): <code>GET/POST /api/pool</code>, <code>PATCH/DELETE /api/pool/:id</code>, <code>POST /api/pool/:id/release</code>, <code>GET /api/pool/stats</code></p>
+    <p class="zh">帳號池管理（session 認證）：同上路徑。</p>
 
-    <h2>4. 生成範例</h2>
+    <h2>4. Generate example / 生成範例</h2>
     <pre class="code-box">export FAA_KEY=faa_sk_...
 export BASE=https://faa.kinai.workers.dev
 
 curl -s -X POST "$BASE/v1/generate" \
   -H "Authorization: Bearer $FAA_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"a cute cat","model":"nano-banana-2-lite","aspect":"1:1","resolution":"1K"}'
+  -d '{
+    "prompt":"a cute cat",
+    "model":"nano-banana-2-lite",
+    "aspect":"1:1",
+    "resolution":"1K",
+    "quality":"low",
+    "poolMode":"auto"
+  }'
 
-# 用回傳的 chatId / jobId 輪詢
+# Poll with returned chatId / jobId
 curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/jobs/<chatId>"</pre>
 
-    <h2>5. 建議模型</h2>
-    <p>預設請用 <strong>nano-banana-2-lite</strong>（unlimited 最穩）。</p>
-    <p><code>gpt-image-2</code> 可能回 <code>MODEL_NOT_ALLOWED_ON_UNLIMITED_PACKAGE</code> 或 locked。</p>
-
-    <h2>6. 錯誤碼</h2>
+    <h2>5. Request fields / 請求欄位</h2>
     <ul>
-      <li><code>UNAUTHORIZED</code> 401 — Key 無效</li>
-      <li><code>FORBIDDEN</code> 403 — 已撤銷 / scope 不足</li>
-      <li><code>UPSTREAM_BUSY</code> 409 — 已有生成進行中</li>
-      <li><code>MODEL_NOT_ALLOWED</code> 403 — unlimited package 限制</li>
-      <li><code>MODEL_LOCKED</code> 503 — 上游帳號池鎖定</li>
-      <li><code>RATE_LIMITED</code> 429 — 30/min、generate 6/min</li>
+      <li><code>prompt</code> (required) — text prompt / 提示詞</li>
+      <li><code>model</code> — default <code>nano-banana-2-lite</code></li>
+      <li><code>aspect</code>, <code>resolution</code>, <code>quality</code>, <code>duration</code>, <code>audio</code></li>
+      <li><code>imagePaths</code> / <code>imageRefs</code> — reference images (max 3)</li>
+      <li><code>fallback</code> — <code>auto</code> | <code>always</code> | <code>never</code> (gpt-image smart fallback)</li>
+      <li><code>forceQuality</code> — if true, do not auto-downgrade quality</li>
+      <li><code>poolMode</code> — <code>auto</code> (default) | <code>pool</code> | <code>personal</code></li>
     </ul>
 
-    <p>完整 Markdown：GitHub <code>docs/v1-api.md</code></p>
+    <h2>6. Recommended models / 建議模型</h2>
+    <p class="en">Default to <strong>nano-banana-2-lite</strong> (most reliable on unlimited package).</p>
+    <p class="zh">預設請用 <strong>nano-banana-2-lite</strong>（unlimited 最穩）。</p>
+    <p class="en"><code>gpt-image-2</code>: prefer <code>quality=low</code>. Smart generate may retry low / fall back to lite when locked or not allowed. Alias <code>gpt-image-2-fast</code> is normalized to <code>gpt-image-2</code>.</p>
+    <p class="zh"><code>gpt-image-2</code> 建議 <code>quality=low</code>。smart generate 會在 locked / not allowed 時重試 low 或 fallback 到 lite。別名 <code>gpt-image-2-fast</code> 會正規化為 <code>gpt-image-2</code>。</p>
+
+    <h2>7. Account pool (parallel generation) / 帳號池（並行生成）</h2>
+    <p class="en">Upstream dafreeai allows only one active generation per account. To support multi-user true parallelism, bind multiple credentials in the <strong>Pool</strong> tab. Each job acquires a free account, and the lock is released when the job completes or fails (TTL 5 minutes).</p>
+    <p class="zh">上游每個帳號同時只能跑一個生成。要支援多人真正並行，請在 <strong>帳號池</strong> 分頁綁多組憑證。每個 job 會占用一個空閒帳號，完成/失敗後釋放（鎖 TTL 5 分鐘）。</p>
+    <ul>
+      <li><code>poolMode=auto</code> — use pool if enabled accounts exist, else personal / 有池用池，否則個人</li>
+      <li><code>poolMode=pool</code> — require free pool account; returns <code>POOL_BUSY</code> 503 if none / 強制池，無空閒回 503</li>
+      <li><code>poolMode=personal</code> — always use caller credentials / 永遠用呼叫者憑證</li>
+    </ul>
+    <p class="en">Response may include <code>fromPool</code>, <code>poolAccount</code>, <code>poolStats</code>, <code>adjustments</code>.</p>
+    <p class="zh">回應可能含 <code>fromPool</code>、<code>poolAccount</code>、<code>poolStats</code>、<code>adjustments</code>。</p>
+    <p class="en">True concurrency needs <strong>≥2 free pool accounts</strong>.</p>
+    <p class="zh">真正並行需要池內至少 <strong>2 組空閒帳號</strong>。</p>
+
+    <h2>8. Error codes / 錯誤碼</h2>
+    <ul>
+      <li><code>UNAUTHORIZED</code> 401 — invalid key / Key 無效</li>
+      <li><code>FORBIDDEN</code> 403 — revoked / insufficient scope · 已撤銷 / scope 不足</li>
+      <li><code>UPSTREAM_BUSY</code> 409 — generation already in progress · 已有生成進行中</li>
+      <li><code>MODEL_NOT_ALLOWED</code> 403 — unlimited package restriction · unlimited 限制</li>
+      <li><code>MODEL_LOCKED</code> 503 — upstream model/account locked · 上游鎖定</li>
+      <li><code>PROMPT_LIMIT</code> — duplicate/similar prompt rejected · 重複 prompt</li>
+      <li><code>POOL_BUSY</code> 503 — no free pool account · 池內無空閒帳號</li>
+      <li><code>RATE_LIMITED</code> 429 — 30/min general, generate 6/min · 一般 30/分、生成 6/分</li>
+    </ul>
+
+    <h2>9. Polling / 輪詢</h2>
+    <p class="en">Generate returns <code>202</code> with <code>jobId</code>/<code>chatId</code> and <code>poll.url</code>. Poll every ~3s until <code>status</code> is <code>completed</code> or <code>error</code>. Pool jobs resolve auth via internal jobmap so clients keep using the same API key.</p>
+    <p class="zh">生成回 <code>202</code> 與 <code>jobId</code>/<code>chatId</code>、<code>poll.url</code>。約每 3 秒輪詢直到 <code>completed</code> 或 <code>error</code>。池任務透過 jobmap 解析憑證，客戶端仍用同一 API Key 輪詢即可。</p>
+
+    <p>Markdown source: GitHub <code>docs/v1-api.md</code> · Live: <a href="https://faa.kinai.workers.dev">faa.kinai.workers.dev</a></p>
   </div>
 </body>
 </html>

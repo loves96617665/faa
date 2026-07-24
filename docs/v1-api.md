@@ -1,6 +1,17 @@
 # DaFreeAi Studio v1 API
 
-Base URL: `https://faa.kinai.workers.dev`
+Base URL: `https://faa.kinai.workers.dev`  
+Build: `2026-07-24-v6-account-pool`
+
+## Overview / 簡介
+
+**English:** Public API for DaFreeAi Studio on Cloudflare Workers. Create an API key in the web UI, then call `/v1/*` with Bearer auth. Supports smart generate (gpt-image-2 quality/fallback) and a **service account pool** for true multi-user parallel generation.
+
+**中文：** Cloudflare Worker 上的公開 API。在 UI 建立 API Key 後以 Bearer 呼叫 `/v1/*`。支援 smart generate（gpt-image-2 品質/降級）與**服務帳號池**，可多人真正並行生成。
+
+Live docs page: https://faa.kinai.workers.dev/docs.html
+
+---
 
 ## Authentication
 
@@ -62,9 +73,20 @@ Request:
   "duration": 5,
   "audio": true,
   "imagePaths": [],
-  "chatId": null
+  "chatId": null,
+  "fallback": "auto",
+  "forceQuality": false,
+  "poolMode": "auto"
 }
 ```
+
+| Field | Description |
+|-------|-------------|
+| `prompt` | Required text prompt |
+| `model` | Model id (aliases like `gpt-image-2-fast` → `gpt-image-2`) |
+| `fallback` | `auto` \| `always` \| `never` — smart fallback for GPT image models |
+| `forceQuality` | If true, do not auto-downgrade quality |
+| `poolMode` | `auto` (default) \| `pool` \| `personal` — account pool routing |
 
 Response `202`:
 
@@ -78,6 +100,10 @@ Response `202`:
   "type": "image",
   "bananaCost": 0,
   "balance": 40,
+  "fromPool": true,
+  "poolAccount": { "id": "pool_...", "name": "...", "userId": "..." },
+  "poolStats": { "total": 2, "enabled": 2, "free": 1, "busy": 1 },
+  "adjustments": ["poolMode:auto", "poolAccount:pool_..."],
   "poll": { "url": "/v1/jobs/uuid", "intervalSec": 3, "timeoutSec": 180 }
 }
 ```
@@ -86,11 +112,41 @@ Response `202`:
 
 Poll job status: `pending` | `processing` | `completed` | `error`.
 
-On success includes `mediaUrl` (remote dafreeai URL).
+On success includes `mediaUrl` (remote dafreeai URL).  
+Pool jobs resolve auth via internal jobmap; keep using the same API key to poll.
 
 ### GET /v1/history?limit=20&offset=0
 
 Normalized history rows.
+
+---
+
+## Service account pool / 服務帳號池
+
+**English:** Upstream dafreeai allows only one active generation per account. Bind multiple credentials in the Studio **Pool** tab for true parallel multi-user generation. Each job acquires a free account; the lock is released on completed/error (TTL 5 minutes).
+
+**中文：** 上游每個帳號同時只能跑一個生成。在 Studio **帳號池** 分頁綁多組憑證即可真正並行。每個 job 占用一個空閒帳號，完成/失敗後釋放（鎖 TTL 5 分鐘）。
+
+### poolMode
+
+| Value | Behavior |
+|-------|----------|
+| `auto` | Use pool if any enabled account exists; else personal |
+| `pool` | Require free pool account; `POOL_BUSY` 503 if none |
+| `personal` | Always use caller credentials |
+
+### Pool management (session auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/pool` | List accounts + stats |
+| GET | `/api/pool/stats` | Stats only |
+| POST | `/api/pool` | Add account (omit body to add current session) |
+| PATCH | `/api/pool/:id` | Update `enabled` / `name` / `token` |
+| DELETE | `/api/pool/:id` | Remove |
+| POST | `/api/pool/:id/release` | Force release lock |
+
+True concurrency needs **≥2 free pool accounts**.
 
 ---
 
@@ -102,7 +158,7 @@ Normalized history rows.
   "error": {
     "code": "MODEL_NOT_ALLOWED",
     "message": "Generation failed: MODEL_NOT_ALLOWED_ON_UNLIMITED_PACKAGE",
-    "hint": "請改用 nano-banana-2-lite，或降低 quality。"
+    "hint": "Use nano-banana-2-lite or lower quality."
   }
 }
 ```
@@ -116,6 +172,8 @@ Normalized history rows.
 | UPSTREAM_BUSY | 409 | Generation already in progress |
 | MODEL_LOCKED | 503 | Upstream accounts inactive / locked |
 | MODEL_NOT_ALLOWED | 403 | Unlimited package restriction |
+| PROMPT_LIMIT | 400/502 | Duplicate/similar prompt rejected |
+| POOL_BUSY | 503 | No free pool account |
 | UPSTREAM_ERROR | 502 | Other upstream error |
 
 ---
@@ -124,7 +182,7 @@ Normalized history rows.
 
 Use **`nano-banana-2-lite`** for reliable unlimited generation.
 
-`gpt-image-2` may intermittently fail with package/lock errors when pool credits are low.
+`gpt-image-2`: prefer `quality=low`. Smart generate may retry with low quality or fall back to lite when locked / not allowed. Alias `gpt-image-2-fast` is normalized to `gpt-image-2`.
 
 ---
 
@@ -139,11 +197,11 @@ curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/models" | jq
 JOB=$(curl -s -X POST "$BASE/v1/generate" \
   -H "Authorization: Bearer $FAA_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"a cute cat","model":"nano-banana-2-lite","aspect":"1:1","resolution":"1K"}')
+  -d '{"prompt":"a cute cat","model":"nano-banana-2-lite","aspect":"1:1","resolution":"1K","poolMode":"auto"}')
 echo "$JOB" | jq
 CHAT=$(echo "$JOB" | jq -r .chatId)
 
 curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/jobs/$CHAT" | jq
 ```
 
-See also: `docs/examples/curl.sh`, `docs/examples/generate.mjs`.
+See also: `docs/examples/curl.sh`, `docs/examples/generate.mjs`, live page `/docs.html`.
