@@ -15,3 +15,8 @@ not_found_handling = "single-page-application"
 
 [vars]
 DAFREEAI_BASE_URL = "https://www.dafreeai.site"
+
+[[kv_namespaces]]
+binding = "KEYS"
+id = "5700550db0684f859dec802784244461"
+preview_id = "8fc3a15e500b44babc9b2c487f102d35"

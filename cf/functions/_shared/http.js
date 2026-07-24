@@ -1,4 +1,4 @@
-/** HTTP helpers for Pages Functions */
+/** HTTP helpers for Worker / Pages Functions */
 
 export function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
@@ -6,6 +6,7 @@ export function json(data, status = 200, headers = {}) {
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
+      "Access-Control-Allow-Origin": "*",
       ...headers,
     },
   });
@@ -49,6 +50,19 @@ export function extractAuth(request, body = {}) {
     userId: String(uid || "").trim(),
     token: String(token || "").trim(),
   };
+}
+
+/**
+ * Extract API key from Authorization: Bearer / X-Api-Key
+ */
+export function extractApiKey(request) {
+  const h = request.headers;
+  const x = h.get("X-Api-Key") || h.get("x-api-key") || "";
+  if (x && String(x).trim()) return String(x).trim();
+  const auth = h.get("Authorization") || h.get("authorization") || "";
+  const m = String(auth).match(/^\s*Bearer\s+(.+)\s*$/i);
+  if (m) return m[1].trim();
+  return "";
 }
 
 export function requireAuth(auth) {

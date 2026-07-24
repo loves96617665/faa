@@ -11,6 +11,7 @@ export const QUALITIES = ["low", "medium", "high"];
  *  supported_resolutions: string[],
  *  model_group_id: number,
  *  unlimited?: boolean,
+ *  recommended?: boolean,
  *  tag_required?: boolean,
  *  tag?: string|null,
  *  supports_quality?: boolean,
@@ -32,9 +33,10 @@ export const MODELS = {
     supported_resolutions: ["1K"],
     model_group_id: 414,
     unlimited: true,
+    recommended: true,
     tag: "LITE",
     default_resolution: "1K",
-    notes: "Free/unlimited lite image model",
+    notes: "Recommended default · free/unlimited · most reliable",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -48,6 +50,7 @@ export const MODELS = {
     unlimited: true,
     tag: "NEW",
     default_resolution: "1K",
+    notes: "Unlimited · may lock when upstream pool is busy",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -62,7 +65,7 @@ export const MODELS = {
     tag_required: true,
     tag: "PRO",
     default_resolution: "1K",
-    notes: "Requires Discord clan tag",
+    notes: "Requires Discord clan tag · often locked when accounts inactive",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -77,7 +80,7 @@ export const MODELS = {
     tag: "PRO",
     supports_quality: true,
     default_resolution: "1K",
-    notes: "Supports quality=low|medium|high; High may lock when pool credits=0",
+    notes: "quality=low|medium|high · may return MODEL_NOT_ALLOWED or lock when pool credits=0 · prefer low",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -91,6 +94,7 @@ export const MODELS = {
     unlimited: false,
     supports_quality: true,
     default_resolution: "1K",
+    notes: "Not unlimited · may be locked",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -104,6 +108,7 @@ export const MODELS = {
     unlimited: false,
     supports_quality: true,
     default_resolution: "1K",
+    notes: "Not unlimited · may be locked",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -119,6 +124,7 @@ export const MODELS = {
     supports_duration: true,
     supports_audio: true,
     default_resolution: "480p",
+    notes: "Video · tag required · may lock",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -134,6 +140,7 @@ export const MODELS = {
     supports_duration: true,
     supports_audio: true,
     default_resolution: "480p",
+    notes: "Video · tag required · may lock",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -150,6 +157,7 @@ export const MODELS = {
     supports_duration: true,
     supports_audio: true,
     default_resolution: "480p",
+    notes: "Video · tag required · may lock",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -165,6 +173,7 @@ export const MODELS = {
     supports_duration: true,
     supports_audio: true,
     default_resolution: "480p",
+    notes: "Video · tag required · may lock",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -180,6 +189,7 @@ export const MODELS = {
     supports_duration: true,
     supports_audio: true,
     default_resolution: "480p",
+    notes: "Video · tag required · may lock",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -195,6 +205,7 @@ export const MODELS = {
     supports_duration: true,
     supports_audio: true,
     default_resolution: "480p",
+    notes: "Video · tag required · may lock",
     supports_image_ref: true,
     max_image_refs: 3,
   },
@@ -203,6 +214,15 @@ export const MODELS = {
 export function listModels(type) {
   let items = Object.values(MODELS);
   if (type) items = items.filter((m) => m.type === String(type).toLowerCase());
+  items.sort((a, b) => {
+    const ar = a.recommended ? 0 : 1;
+    const br = b.recommended ? 0 : 1;
+    if (ar !== br) return ar - br;
+    const au = a.unlimited ? 0 : 1;
+    const bu = b.unlimited ? 0 : 1;
+    if (au !== bu) return au - bu;
+    return String(a.id).localeCompare(String(b.id));
+  });
   return items;
 }
 
@@ -223,6 +243,7 @@ export function modelToDict(m) {
     supported_resolutions: [...m.supported_resolutions],
     model_group_id: m.model_group_id,
     unlimited: !!m.unlimited,
+    recommended: !!m.recommended,
     tag_required: !!m.tag_required,
     tag: m.tag ?? null,
     supports_quality: !!m.supports_quality,

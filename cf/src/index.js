@@ -1,6 +1,7 @@
 /**
- * Cloudflare Worker entry — static assets + /api/* handlers.
+ * Cloudflare Worker entry — static assets + /api/* + /v1/* handlers.
  * Live: https://faa.kinai.workers.dev
+ * build: 2026-07-24-v4-api-keys
  */
 import {
   apiMeta,
@@ -16,6 +17,10 @@ import {
   apiDeleteHistory,
   apiGallery,
 } from "./routes.js";
+import { apiKeysList, apiKeysCreate, apiKeysRevoke } from "./routes-keys.js";
+import { v1Models, v1Me, v1Generate, v1Job, v1History } from "./routes-v1.js";
+
+const BUILD = "2026-07-24-v4-api-keys";
 
 function ctx(request, env, executionCtx, params = {}) {
   return {
@@ -38,25 +43,31 @@ function match(path, pattern) {
   return params;
 }
 
+function corsPreflight() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
+      "Access-Control-Allow-Headers":
+        "Content-Type, Authorization, X-Api-Key, X-User-Id, X-User-Token",
+      "Access-Control-Max-Age": "86400",
+    },
+  });
+}
+
 async function handleApi(request, env, executionCtx) {
   const url = new URL(request.url);
-  // normalize trailing slash except root
   let path = url.pathname;
   if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
   const method = request.method.toUpperCase();
   const base = ctx(request, env, executionCtx);
 
-  if (method === "OPTIONS" && path.startsWith("/api")) {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, X-User-Id, X-User-Token",
-      },
-    });
+  if (method === "OPTIONS" && (path.startsWith("/api") || path.startsWith("/v1"))) {
+    return corsPreflight();
   }
 
+  // --- UI session API ---
   if (method === "GET" && path === "/api/meta") return apiMeta(base);
   if (method === "GET" && path === "/api/status") return apiStatus(base);
   if (method === "POST" && path === "/api/generate") return apiGenerate(base);
@@ -68,15 +79,34 @@ async function handleApi(request, env, executionCtx) {
   if (method === "GET" && path === "/api/auth/me") return apiMe(base);
   if (method === "POST" && path === "/api/auth/accept-terms") return apiAcceptTerms(base);
 
-  let params = match(path, "/api/job/:chatId");
+  // --- API Key management (session) ---
+  if (method === "GET" && path === "/api/keys") return apiKeysList(base);
+  if (method === "POST" && path === "/api/keys") return apiKeysCreate(base);
+  let params = match(path, "/api/keys/:id");
+  if (params && method === "DELETE") return apiKeysRevoke({ ...base, params });
+
+  params = match(path, "/api/job/:chatId");
   if (params && method === "GET") return apiJob({ ...base, params });
 
   params = match(path, "/api/history/:chatId");
   if (params && method === "DELETE") return apiDeleteHistory({ ...base, params });
 
+  // --- Public v1 API (API Key) ---
+  if (method === "GET" && path === "/v1/models") return v1Models(base);
+  if (method === "GET" && path === "/v1/me") return v1Me(base);
+  if (method === "POST" && path === "/v1/generate") return v1Generate(base);
+  if (method === "GET" && path === "/v1/history") return v1History(base);
+  params = match(path, "/v1/jobs/:id");
+  if (params && method === "GET") return v1Job({ ...base, params });
+  params = match(path, "/v1/job/:id");
+  if (params && method === "GET") return v1Job({ ...base, params });
+
   return new Response(JSON.stringify({ ok: false, error: `API not found: ${method} ${path}` }), {
     status: 404,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+    },
   });
 }
 
@@ -85,26 +115,37 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // Health marker so we can confirm the Worker script is active
     if (path === "/api/__version") {
       return new Response(
         JSON.stringify({
           ok: true,
-          build: "2026-07-24-v3-root-wrangler",
+          build: BUILD,
           runtime: "cloudflare-worker",
+          features: ["api-keys", "v1"],
         }),
-        { status: 200, headers: { "Content-Type": "application/json; charset=utf-8" } }
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Access-Control-Allow-Origin": "*",
+          },
+        }
       );
     }
 
-    // Always handle API in worker (never fall through to SPA assets)
-    if (path === "/api" || path.startsWith("/api/")) {
+    if (path === "/api" || path.startsWith("/api/") || path === "/v1" || path.startsWith("/v1/")) {
       try {
         return await handleApi(request, env, executionCtx);
       } catch (e) {
         return new Response(
           JSON.stringify({ ok: false, error: e.message || String(e), stack: String(e.stack || "") }),
-          { status: 500, headers: { "Content-Type": "application/json; charset=utf-8" } }
+          {
+            status: 500,
+            headers: {
+              "Content-Type": "application/json; charset=utf-8",
+              "Access-Control-Allow-Origin": "*",
+            },
+          }
         );
       }
     }
@@ -119,6 +160,7 @@ export default {
     if (env.ASSETS) {
       return env.ASSETS.fetch(request);
     }
-    return new Response("ASSETS binding missing", { status: 500 });
+
+    return new Response("Not found", { status: 404 });
   },
 };

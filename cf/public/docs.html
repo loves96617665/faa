@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DaFreeAi Studio · v1 API Docs</title>
+  <link rel="stylesheet" href="/css/style.css?v=20260724v4" />
+  <style>
+    .docs { max-width: 900px; margin: 0 auto; padding: 24px 20px 48px; position: relative; z-index: 1; }
+    .docs h1 { font-size: 1.6rem; margin-bottom: 8px; }
+    .docs h2 { font-size: 1.15rem; margin: 28px 0 10px; }
+    .docs p, .docs li { color: var(--muted); line-height: 1.6; }
+    .docs code { color: #e2e8f0; }
+    .docs pre { margin: 12px 0; }
+    .docs a { color: #7dd3fc; }
+  </style>
+</head>
+<body>
+  <div class="bg-glow glow-1"></div>
+  <div class="bg-glow glow-2"></div>
+  <div class="docs">
+    <p><a href="/">← 回到 Studio</a></p>
+    <h1>v1 API 文件</h1>
+    <p>Base: <code>https://faa.kinai.workers.dev</code></p>
+
+    <h2>1. 建立 API Key</h2>
+    <ol>
+      <li>開啟 Studio → <strong>登入</strong> 貼上 dafreeai localStorage JSON</li>
+      <li>切到 <strong>API</strong> 分頁 → 建立 Key</li>
+      <li>明文 <code>faa_sk_...</code> 只顯示一次，請立即複製</li>
+    </ol>
+
+    <h2>2. 認證</h2>
+    <pre class="code-box">Authorization: Bearer faa_sk_...</pre>
+    <p>或 <code>X-Api-Key: faa_sk_...</code></p>
+
+    <h2>3. 端點</h2>
+    <ul>
+      <li><code>GET /v1/models</code> — 模型列表</li>
+      <li><code>GET /v1/me</code> — 帳號 / 餘額 / key 資訊</li>
+      <li><code>POST /v1/generate</code> — 提交生成（非阻塞）</li>
+      <li><code>GET /v1/jobs/:jobId</code> — 輪詢結果</li>
+      <li><code>GET /v1/history</code> — 歷史</li>
+    </ul>
+
+    <h2>4. 生成範例</h2>
+    <pre class="code-box">export FAA_KEY=faa_sk_...
+export BASE=https://faa.kinai.workers.dev
+
+curl -s -X POST "$BASE/v1/generate" \
+  -H "Authorization: Bearer $FAA_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"a cute cat","model":"nano-banana-2-lite","aspect":"1:1","resolution":"1K"}'
+
+# 用回傳的 chatId / jobId 輪詢
+curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/jobs/<chatId>"</pre>
+
+    <h2>5. 建議模型</h2>
+    <p>預設請用 <strong>nano-banana-2-lite</strong>（unlimited 最穩）。</p>
+    <p><code>gpt-image-2</code> 可能回 <code>MODEL_NOT_ALLOWED_ON_UNLIMITED_PACKAGE</code> 或 locked。</p>
+
+    <h2>6. 錯誤碼</h2>
+    <ul>
+      <li><code>UNAUTHORIZED</code> 401 — Key 無效</li>
+      <li><code>FORBIDDEN</code> 403 — 已撤銷 / scope 不足</li>
+      <li><code>UPSTREAM_BUSY</code> 409 — 已有生成進行中</li>
+      <li><code>MODEL_NOT_ALLOWED</code> 403 — unlimited package 限制</li>
+      <li><code>MODEL_LOCKED</code> 503 — 上游帳號池鎖定</li>
+      <li><code>RATE_LIMITED</code> 429 — 30/min、generate 6/min</li>
+    </ul>
+
+    <p>完整 Markdown：GitHub <code>docs/v1-api.md</code></p>
+  </div>
+</body>
+</html>

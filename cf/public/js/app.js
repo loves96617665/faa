@@ -1,11 +1,12 @@
-/* DaFreeAi Studio — Cloudflare Phase 1 frontend
+/* DaFreeAi Studio — Cloudflare frontend
  * Credentials live in browser localStorage only.
  * All API calls send X-User-Id / X-User-Token headers.
- * build: 2026-07-24-v3-root-wrangler
+ * build: 2026-07-24-v4-api-keys
  */
 (() => {
   const $ = (id) => document.getElementById(id);
   const LS_KEY = "dafreeai_user";
+  const BASE = location.origin;
 
   const state = {
     models: [],
@@ -15,6 +16,7 @@
     currentChatId: null,
     currentModel: null,
     creds: null, // { id, token, username }
+    lastApiKey: null,
   };
 
   function loadCreds() {
@@ -92,6 +94,24 @@
     return data;
   }
 
+  function friendlyError(msg) {
+    const s = String(msg || "");
+    if (/MODEL_NOT_ALLOWED_ON_UNLIMITED_PACKAGE/i.test(s)) {
+      return `${s} → 請改用 nano-banana-2-lite，或降低 quality`;
+    }
+    if (/All accounts are currently inactive|is locked/i.test(s)) {
+      return `${s} → 上游帳號池鎖定，請稍後或改用 nano-banana-2-lite`;
+    }
+    if (/Generation in progress/i.test(s)) {
+      return `${s} → 請等目前生成完成後再試`;
+    }
+    if (typeof msg === "object" && msg?.message) {
+      const hint = msg.hint ? `（${msg.hint}）` : "";
+      return `${msg.code || "ERROR"}: ${msg.message}${hint}`;
+    }
+    return s;
+  }
+
   function modelById(id) {
     return state.models.find((m) => m.id === id);
   }
@@ -105,6 +125,7 @@
       const opt = document.createElement("option");
       opt.value = m.id;
       const flags = [m.type];
+      if (m.recommended) flags.push("recommended");
       if (m.unlimited) flags.push("unlimited");
       if (m.tag_required) flags.push("tag");
       if (m.supports_quality) flags.push("quality");
@@ -117,6 +138,8 @@
       opt.textContent = "無模型";
       sel.appendChild(opt);
     }
+    const lite = [...sel.options].find((o) => o.value === "nano-banana-2-lite");
+    if (lite) sel.value = "nano-banana-2-lite";
     updateModelParams();
   }
 
@@ -140,9 +163,10 @@
     $("quality-field").style.display = showQ ? "" : "none";
     $("duration-field").style.display = showV ? "" : "none";
     $("audio-field").style.display = showV ? "" : "none";
+    if (showQ) $("gen-quality").value = "low";
 
     $("model-info").textContent = m
-      ? `${m.name} · ${m.company} · res=${(m.supported_resolutions || []).join(",")} · unlimited=${m.unlimited} · tag_required=${m.tag_required}${m.notes ? " · " + m.notes : ""}`
+      ? `${m.name} · ${m.company} · res=${(m.supported_resolutions || []).join(",")} · unlimited=${m.unlimited} · recommended=${!!m.recommended} · tag_required=${m.tag_required}${m.notes ? " · " + m.notes : ""}`
       : "";
   }
 
@@ -247,15 +271,13 @@
       opt.textContent = q;
       quality.appendChild(opt);
     });
+    quality.value = "low";
 
     if (state.creds) {
       $("auth-uid").value = state.creds.id;
       if (state.creds.username) $("auth-name").value = state.creds.username;
     }
     fillModels();
-    const lite = [...$("gen-model").options].find((o) => o.value === "nano-banana-2-lite");
-    if (lite) $("gen-model").value = "nano-banana-2-lite";
-    updateModelParams();
     await refreshMe();
   }
 
@@ -266,6 +288,7 @@
         document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
         btn.classList.add("active");
         $("panel-" + btn.dataset.tab).classList.add("active");
+        if (btn.dataset.tab === "api") loadKeys();
       });
     });
   }
@@ -463,7 +486,7 @@
           body: JSON.stringify(body),
         });
         if (!data.ok) {
-          setStatus($("gen-status"), data.error || "提交失敗", "err");
+          setStatus($("gen-status"), friendlyError(data.error || "提交失敗"), "err");
           $("result-meta").textContent = JSON.stringify(data, null, 2);
           return;
         }
@@ -495,7 +518,7 @@
         state.currentModel = final.model || data.model || model;
 
         if (!final.ok) {
-          const msg = final.error || final.message || "生成失敗";
+          const msg = friendlyError(final.error || final.message || "生成失敗");
           setStatus($("gen-status"), msg, "err");
           $("result-meta").textContent = [
             `status=${final.status || "error"}`,
@@ -525,7 +548,7 @@
         setStatus($("gen-status"), "生成完成", "ok");
         refreshMe();
       } catch (e) {
-        setStatus($("gen-status"), String(e), "err");
+        setStatus($("gen-status"), friendlyError(String(e)), "err");
       } finally {
         btn.disabled = false;
         label.textContent = "開始生成";
@@ -539,6 +562,110 @@
       .replaceAll("&", "&")
       .replaceAll("<", "<")
       .replaceAll(">", ">");
+  }
+
+  function updateCurlExample(apiKey) {
+    const key = apiKey || state.lastApiKey || "faa_sk_...";
+    $("key-curl").textContent = `# API Key 範例
+export FAA_KEY=${key}
+export BASE=${BASE}
+
+# 模型列表
+curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/models"
+
+# 生成
+curl -s -X POST "$BASE/v1/generate" \\
+  -H "Authorization: Bearer $FAA_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"prompt":"a cute cat","model":"nano-banana-2-lite","aspect":"1:1","resolution":"1K"}'
+
+# 輪詢（把 chatId 換成回傳值）
+curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/jobs/<chatId>"`;
+  }
+
+  async function loadKeys() {
+    if (!state.creds) {
+      setStatus($("key-status"), "請先登入", "err");
+      $("key-list").innerHTML = "";
+      return;
+    }
+    setStatus($("key-status"), "載入中…");
+    const data = await api("/api/keys");
+    if (!data.ok) {
+      const msg =
+        typeof data.error === "object"
+          ? friendlyError(data.error)
+          : data.error || "失敗";
+      setStatus($("key-status"), msg, "err");
+      return;
+    }
+    const list = $("key-list");
+    list.innerHTML = "";
+    (data.keys || []).forEach((k) => {
+      const row = document.createElement("div");
+      row.className = "key-item";
+      const revoked = k.revokedAt ? " · revoked" : "";
+      row.innerHTML = `
+        <div class="key-meta">
+          <div class="t">${escapeHtml(k.name || "—")} · <code>${escapeHtml(k.prefix || "")}…</code>${revoked}</div>
+          <div class="p">id=${escapeHtml(k.id)} · scopes=${escapeHtml((k.scopes || []).join(","))} · created=${k.createdAt ? new Date(k.createdAt).toLocaleString() : "—"}</div>
+        </div>
+        <button type="button" class="btn btn-danger btn-sm" data-id="${escapeHtml(k.id)}">撤銷</button>
+      `;
+      row.querySelector("button").onclick = async () => {
+        if (!confirm(`確定撤銷 ${k.name || k.id}？`)) return;
+        const res = await api(`/api/keys/${encodeURIComponent(k.id)}`, { method: "DELETE" });
+        if (!res.ok) {
+          setStatus($("key-status"), friendlyError(res.error || "撤銷失敗"), "err");
+          return;
+        }
+        setStatus($("key-status"), `已撤銷 ${k.id}`, "ok");
+        loadKeys();
+      };
+      list.appendChild(row);
+    });
+    if (!(data.keys || []).length) {
+      list.innerHTML = '<p class="muted small">尚無 API Key</p>';
+    }
+    setStatus($("key-status"), `共 ${(data.keys || []).length} 組`, "ok");
+  }
+
+  function bindKeys() {
+    $("btn-key-refresh").onclick = loadKeys;
+    $("btn-key-create").onclick = async () => {
+      if (!state.creds) return setStatus($("key-status"), "請先登入", "err");
+      setStatus($("key-status"), "建立中…", "warn");
+      const data = await api("/api/keys", {
+        method: "POST",
+        body: JSON.stringify({
+          name: $("key-name").value.trim() || "default",
+          username: state.creds.username || "",
+          scopes: ["*"],
+        }),
+      });
+      if (!data.ok) {
+        setStatus($("key-status"), friendlyError(data.error || "建立失敗"), "err");
+        return;
+      }
+      const plain = data.key?.apiKey || "";
+      state.lastApiKey = plain;
+      $("key-once").value = plain;
+      $("key-once-wrap").classList.remove("hidden");
+      updateCurlExample(plain);
+      setStatus($("key-status"), "已建立（請立即複製）", "ok");
+      loadKeys();
+    };
+    $("btn-key-copy").onclick = async () => {
+      const v = $("key-once").value;
+      try {
+        await navigator.clipboard.writeText(v);
+        setStatus($("key-status"), "已複製到剪貼簿", "ok");
+      } catch {
+        $("key-once").select();
+        setStatus($("key-status"), "請手動複製", "warn");
+      }
+    };
+    updateCurlExample();
   }
 
   async function loadHistory() {
@@ -583,7 +710,7 @@
         }
         setStatus(
           $("hist-status"),
-          row.error ? `錯誤：${row.error}` : `已選擇 ${row.chatId}`,
+          row.error ? `錯誤：${friendlyError(row.error)}` : `已選擇 ${row.chatId}`,
           row.error ? "err" : "ok"
         );
       };
@@ -663,6 +790,7 @@
     bindAuth();
     bindGenerate();
     bindHistory();
+    bindKeys();
     bindStatus();
     try {
       await loadMeta();
