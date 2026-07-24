@@ -1,5 +1,6 @@
-# Cloudflare Worker + static assets
+# Cloudflare Worker + static assets (local deploy from cf/)
 # Live: https://faa.kinai.workers.dev
+# NOTE: Git auto-deploy uses the ROOT wrangler.toml (../wrangler.toml)
 name = "faa"
 main = "src/index.js"
 compatibility_date = "2024-11-01"

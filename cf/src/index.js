@@ -90,7 +90,7 @@ export default {
       return new Response(
         JSON.stringify({
           ok: true,
-          build: "2026-07-24-v2-worker-routes",
+          build: "2026-07-24-v3-root-wrangler",
           runtime: "cloudflare-worker",
         }),
         { status: 200, headers: { "Content-Type": "application/json; charset=utf-8" } }
