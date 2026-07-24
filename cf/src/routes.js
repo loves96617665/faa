@@ -2,7 +2,7 @@
  * All API route handlers in one module (no [param] filenames for bundler safety).
  */
 import { json, err, readJson, extractAuth, requireAuth, uuid, baseUrl } from "../functions/_shared/http.js";
-import { ASPECT_RATIOS, QUALITIES, listModels, modelToDict, validateGenerateParams } from "../functions/_shared/models.js";
+import { ASPECT_RATIOS, QUALITIES, listModels, modelToDict } from "../functions/_shared/models.js";
 import {
   DaFreeAiError,
   getLoginUrl,
@@ -13,12 +13,13 @@ import {
   acceptTerms,
   history,
   deleteHistory,
-  generate,
   extractMedia,
   absoluteMediaUrl,
   findResultInHistory,
 } from "../functions/_shared/client.js";
 import { extractUserFields } from "../functions/_shared/http.js";
+import { smartGenerate } from "../functions/_shared/generate-smart.js";
+import { resolveJobAuth, finalizeJobIfNeeded } from "../functions/_shared/pool.js";
 
 export async function apiMeta(context) {
   const { request, env } = context;
@@ -221,6 +222,9 @@ export async function apiGenerate(context) {
   const duration = Number(body.duration || 5);
   const audio = body.audio !== false && body.audio !== "false";
   const chatId = String(body.chatId || "").trim() || uuid();
+  const fallback = body.fallback ?? "auto";
+  const forceQuality = body.forceQuality === true || body.forceQuality === "true";
+  const poolMode = String(body.poolMode || body.mode || "auto").toLowerCase();
 
   let refs = body.imagePaths || body.imageRefs || [];
   if (typeof refs === "string") {
@@ -231,51 +235,60 @@ export async function apiGenerate(context) {
   }
   if (!Array.isArray(refs)) refs = [];
 
-  let model;
-  let settings;
   try {
-    ({ model, settings } = validateGenerateParams(modelId, {
+    const result = await smartGenerate(context.env, auth, {
+      prompt,
+      model: modelId,
       aspect,
       resolution,
       quality,
       duration,
       audio,
-      imagePaths: refs,
-    }));
-  } catch (e) {
-    return err(e.message || String(e));
-  }
-
-  try {
-    const submit = await generate(context.env, auth, {
-      prompt,
-      model: modelId,
-      settings,
       chatId,
       imagePaths: refs.length ? refs : null,
+      fallback,
+      forceQuality,
+      poolMode,
     });
     return json({
       ok: true,
       status: "submitted",
-      chatId,
-      submit,
-      model: modelId,
-      type: model.type,
+      chatId: result.chatId,
+      submit: result.submit,
+      model: result.modelId,
+      type: result.model.type,
       prompt,
+      adjustments: result.adjustments,
+      fallbackUsed: result.fallbackUsed,
+      originalModel: result.originalModel,
+      originalQuality: result.originalQuality,
+      poolCredits: result.poolCredits,
+      fromPool: !!result.fromPool,
+      poolAccount: result.poolAccount
+        ? { id: result.poolAccount.id, name: result.poolAccount.name, userId: result.poolAccount.userId }
+        : null,
+      poolStats: result.poolStats || null,
+      settings: result.settings,
     });
   } catch (e) {
-    const status = e instanceof DaFreeAiError ? e.status || 502 : 502;
+    const status =
+      e.status === 503 || e.code === "POOL_BUSY"
+        ? 503
+        : e instanceof DaFreeAiError
+          ? e.status || 502
+          : e.status || 502;
     return err(`提交失敗：${e.message || e}`, status, {
       payload: e.payload || null,
+      code: e.code || null,
     });
   }
 }
 
 export async function apiJob(context) {
   const { request, env, params } = context;
-  const auth = extractAuth(request);
+  const personalAuth = extractAuth(request);
   try {
-    requireAuth(auth);
+    requireAuth(personalAuth);
   } catch (e) {
     return err(e.message || "Unauthorized", e.status || 401);
   }
@@ -286,12 +299,36 @@ export async function apiJob(context) {
   const url = new URL(request.url);
   const promptSubstr = url.searchParams.get("prompt") || null;
 
+  // Prefer pool account auth if this job was submitted via pool
+  let auth = personalAuth;
+  let fromPool = false;
+  try {
+    const resolved = await resolveJobAuth(env, chatId, personalAuth);
+    if (resolved?.auth) {
+      auth = resolved.auth;
+      fromPool = !!resolved.fromPool;
+    }
+  } catch {
+    // fall back to personal
+  }
+
   let hist;
   try {
     hist = await history(env, auth, { limit: 20, offset: 0 });
   } catch (e) {
-    const status = e instanceof DaFreeAiError ? e.status || 500 : 500;
-    return err(e.message || String(e), status);
+    // if pool auth fails, try personal once
+    if (fromPool) {
+      try {
+        hist = await history(env, personalAuth, { limit: 20, offset: 0 });
+        fromPool = false;
+      } catch (e2) {
+        const status = e2 instanceof DaFreeAiError ? e2.status || 500 : 500;
+        return err(e2.message || String(e2), status);
+      }
+    } else {
+      const status = e instanceof DaFreeAiError ? e.status || 500 : 500;
+      return err(e.message || String(e), status);
+    }
   }
 
   const found = findResultInHistory(hist, { chatId, promptSubstr });
@@ -300,9 +337,17 @@ export async function apiJob(context) {
       ok: true,
       status: "pending",
       chatId,
+      fromPool,
       activeGeneration: hist?.activeGeneration,
       activeGenerationsCount: hist?.activeGenerationsCount,
     });
+  }
+
+  // Release pool lock when terminal
+  try {
+    await finalizeJobIfNeeded(env, chatId, found.status);
+  } catch {
+    /* ignore */
   }
 
   const out = {
@@ -312,6 +357,7 @@ export async function apiJob(context) {
     msgId: found.msgId,
     message: found.message,
     result: found,
+    fromPool,
     activeGeneration: hist?.activeGeneration,
     activeGenerationsCount: hist?.activeGenerationsCount,
   };

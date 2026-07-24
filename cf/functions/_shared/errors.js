@@ -40,6 +40,15 @@ export function classifyError(message, status = null) {
     };
   }
 
+  if (/prompt limit retry|diffrent prompt|different prompt/i.test(msg)) {
+    return {
+      code: "PROMPT_LIMIT",
+      http: 429,
+      message: msg,
+      hint: "相同/相似 prompt 觸發上游限流，請換一段不同的 prompt 再試。",
+    };
+  }
+
   if (status === 429 || /rate limit|too many/i.test(lower)) {
     return {
       code: "RATE_LIMITED",

@@ -13,19 +13,19 @@ import {
   QUALITIES,
   listModels,
   modelToDict,
-  validateGenerateParams,
 } from "../functions/_shared/models.js";
 import {
   DaFreeAiError,
   balance,
   checkTag,
   history,
-  generate,
   absoluteMediaUrl,
   findResultInHistory,
 } from "../functions/_shared/client.js";
 import { resolveApiKey, hasScope, checkRateLimit } from "../functions/_shared/keys.js";
 import { classifyError, errorBody } from "../functions/_shared/errors.js";
+import { smartGenerate } from "../functions/_shared/generate-smart.js";
+import { resolveJobAuth, finalizeJobIfNeeded } from "../functions/_shared/pool.js";
 
 async function authFromApiKey(context, { scope = null } = {}) {
   const raw = extractApiKey(context.request);
@@ -125,6 +125,9 @@ export async function v1Generate(context) {
   const duration = Number(body.duration || 5);
   const audio = body.audio !== false && body.audio !== "false";
   const chatId = String(body.chatId || body.jobId || "").trim() || uuid();
+  const fallback = body.fallback ?? "auto";
+  const forceQuality = body.forceQuality === true || body.forceQuality === "true";
+  const poolMode = String(body.poolMode || body.mode || "auto").toLowerCase();
 
   let refs = body.imagePaths || body.imageRefs || [];
   if (typeof refs === "string") {
@@ -135,44 +138,47 @@ export async function v1Generate(context) {
   }
   if (!Array.isArray(refs)) refs = [];
 
-  let model;
-  let settings;
   try {
-    ({ model, settings } = validateGenerateParams(modelId, {
+    const result = await smartGenerate(context.env, a.auth, {
+      prompt,
+      model: modelId,
       aspect,
       resolution,
       quality,
       duration,
       audio,
-      imagePaths: refs,
-    }));
-  } catch (e) {
-    const c = classifyError(e.message || e, 400);
-    return json(errorBody(c), c.http);
-  }
-
-  try {
-    const submit = await generate(context.env, a.auth, {
-      prompt,
-      model: modelId,
-      settings,
       chatId,
       imagePaths: refs.length ? refs : null,
+      fallback,
+      forceQuality,
+      poolMode,
     });
+    const submit = result.submit;
     const bal = submit?.bananas?.balance ?? submit?.bananas ?? null;
     return json(
       {
         ok: true,
         status: "submitted",
-        jobId: chatId,
-        chatId,
-        model: modelId,
-        type: model.type,
+        jobId: result.chatId,
+        chatId: result.chatId,
+        model: result.modelId,
+        type: result.model.type,
         prompt,
         bananaCost: submit?.bananaCost ?? null,
         balance: bal,
+        adjustments: result.adjustments,
+        fallbackUsed: result.fallbackUsed,
+        originalModel: result.originalModel,
+        originalQuality: result.originalQuality,
+        poolCredits: result.poolCredits,
+        fromPool: !!result.fromPool,
+        poolAccount: result.poolAccount
+          ? { id: result.poolAccount.id, name: result.poolAccount.name, userId: result.poolAccount.userId }
+          : null,
+        poolStats: result.poolStats || null,
+        settings: result.settings,
         poll: {
-          url: `/v1/jobs/${chatId}`,
+          url: `/v1/jobs/${result.chatId}`,
           intervalSec: 3,
           timeoutSec: 180,
         },
@@ -182,7 +188,21 @@ export async function v1Generate(context) {
     );
   } catch (e) {
     const msg = e instanceof DaFreeAiError ? e.message : e.message || String(e);
-    const status = e instanceof DaFreeAiError ? e.status : 502;
+    const status =
+      e.status === 503 || e.code === "POOL_BUSY"
+        ? 503
+        : e instanceof DaFreeAiError
+          ? e.status || 502
+          : e.status || 502;
+    // validation errors from smartGenerate/buildSettings
+    if (/Unknown model|Unsupported|Max \d+ reference/i.test(msg)) {
+      const c = classifyError(msg, 400);
+      return json(errorBody(c), c.http);
+    }
+    if (e.code === "POOL_BUSY" || status === 503) {
+      const c = classifyError(msg, 503);
+      return json(errorBody(c, { code: "POOL_BUSY" }), 503);
+    }
     const c = classifyError(msg, status);
     return json(errorBody(c, { payload: e.payload || null }), c.http);
   }
@@ -201,12 +221,34 @@ export async function v1Job(context) {
   const url = new URL(context.request.url);
   const promptSubstr = url.searchParams.get("prompt") || null;
 
+  let auth = a.auth;
+  let fromPool = false;
+  try {
+    const resolved = await resolveJobAuth(context.env, chatId, a.auth);
+    if (resolved?.auth) {
+      auth = resolved.auth;
+      fromPool = !!resolved.fromPool;
+    }
+  } catch {
+    /* personal */
+  }
+
   let hist;
   try {
-    hist = await history(context.env, a.auth, { limit: 20, offset: 0 });
+    hist = await history(context.env, auth, { limit: 20, offset: 0 });
   } catch (e) {
-    const c = classifyError(e.message || e, e.status || 500);
-    return json(errorBody(c), c.http);
+    if (fromPool) {
+      try {
+        hist = await history(context.env, a.auth, { limit: 20, offset: 0 });
+        fromPool = false;
+      } catch (e2) {
+        const c = classifyError(e2.message || e2, e2.status || 500);
+        return json(errorBody(c), c.http);
+      }
+    } else {
+      const c = classifyError(e.message || e, e.status || 500);
+      return json(errorBody(c), c.http);
+    }
   }
 
   const found = findResultInHistory(hist, { chatId, promptSubstr });
@@ -216,9 +258,16 @@ export async function v1Job(context) {
       status: "pending",
       jobId: chatId,
       chatId,
+      fromPool,
       activeGeneration: hist?.activeGeneration || null,
       error: null,
     });
+  }
+
+  try {
+    await finalizeJobIfNeeded(context.env, chatId, found.status);
+  } catch {
+    /* ignore */
   }
 
   if (found.status === "error") {
@@ -229,6 +278,7 @@ export async function v1Job(context) {
       jobId: chatId,
       chatId: found.chatId || chatId,
       msgId: found.msgId,
+      fromPool,
       error: {
         code: c.code,
         message: c.message,
@@ -246,6 +296,7 @@ export async function v1Job(context) {
     jobId: found.chatId || chatId,
     chatId: found.chatId || chatId,
     msgId: found.msgId,
+    fromPool,
     media,
     mediaUrl: media ? absoluteMediaUrl(context.env, media) : null,
     modelName: found.modelName || null,

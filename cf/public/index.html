@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DaFreeAi Studio · Cloudflare</title>
-  <!-- build: 2026-07-24-v4-api-keys -->
-  <link rel="stylesheet" href="/css/style.css?v=20260724v4" />
+  <!-- build: 2026-07-24-v5-gpt2-smart -->
+  <link rel="stylesheet" href="/css/style.css?v=20260724v5" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 </head>
@@ -32,11 +32,12 @@
   <main class="layout">
     <section class="panel controls">
       <div class="tabs">
-        <button class="tab active" data-tab="auth" type="button">登入</button>
-        <button class="tab" data-tab="generate" type="button">生成</button>
-        <button class="tab" data-tab="history" type="button">歷史</button>
+        <button class="tab active" data-tab="auth" type="button">登入 / Login</button>
+        <button class="tab" data-tab="generate" type="button">生成 / Generate</button>
+        <button class="tab" data-tab="history" type="button">歷史 / History</button>
         <button class="tab" data-tab="api" type="button">API</button>
-        <button class="tab" data-tab="status" type="button">狀態</button>
+        <button class="tab" data-tab="pool" type="button">帳號池 / Pool</button>
+        <button class="tab" data-tab="status" type="button">狀態 / Status</button>
       </div>
 
       <!-- Auth -->
@@ -75,8 +76,9 @@
       <!-- Generate -->
       <div id="panel-generate" class="tab-panel">
         <div class="info-box">
-          建議模型：<strong>nano-banana-2-lite</strong>（unlimited 最穩）。
-          GPT Image 2 可能出現 <code>MODEL_NOT_ALLOWED_ON_UNLIMITED_PACKAGE</code> 或 locked。
+          建議模型：<strong>nano-banana-2-lite</strong>（最穩）。
+          <strong>gpt-image-2</strong> 請用 <code>quality=low</code>（medium 通常可；high 在 pool=0 常 locked）。
+          系統會自動降 quality / 失敗時 fallback 到 lite。
         </div>
         <label class="field">
           <span>提示詞 Prompt</span>
@@ -182,17 +184,45 @@
         <div id="key-list" class="key-list"></div>
         <p id="key-status" class="status"></p>
 
-        <div class="divider">curl 範例</div>
+        <div class="divider">curl 範例 / Examples</div>
         <pre id="key-curl" class="code-box small-code"># 建立 key 後會自動填入範例
 export FAA_KEY=faa_sk_...
 export BASE=https://faa.kinai.workers.dev
 curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/models"</pre>
       </div>
 
+      <!-- Account Pool -->
+      <div id="panel-pool" class="tab-panel">
+        <div class="info-box">
+          <strong>服務帳號池 / Service Account Pool</strong><br />
+          綁定多組 dafreeai 憑證，生成時自動分配空閒帳號，支援多人真正並行。
+          Bind multiple dafreeai credentials; free accounts are auto-assigned for true parallel generation.
+          <br /><code>poolMode</code>: <code>auto</code>（預設）| <code>pool</code>（強制池）| <code>personal</code>（僅個人）
+        </div>
+
+        <div id="pool-stats" class="info-box">stats: —</div>
+
+        <div class="row">
+          <button id="btn-pool-refresh" class="btn btn-ghost" type="button">重新整理 / Refresh</button>
+          <button id="btn-pool-add-session" class="btn btn-primary" type="button">加入目前登入帳號 / Add current session</button>
+        </div>
+
+        <div class="divider">手動新增 / Add manually</div>
+        <label class="field"><span>name（可選）</span><input id="pool-name" type="text" placeholder="worker-1" /></label>
+        <label class="field"><span>userId</span><input id="pool-uid" type="text" /></label>
+        <label class="field"><span>token</span><input id="pool-token" type="password" /></label>
+        <label class="field"><span>username（可選）</span><input id="pool-username" type="text" /></label>
+        <button id="btn-pool-add" class="btn btn-secondary btn-block" type="button">新增到池 / Add to pool</button>
+
+        <div class="divider">池內帳號 / Pool accounts</div>
+        <div id="pool-list" class="key-list"></div>
+        <p id="pool-status" class="status"></p>
+      </div>
+
       <!-- Status -->
       <div id="panel-status" class="tab-panel">
-        <button id="btn-status" class="btn btn-primary btn-block" type="button">重新整理系統狀態</button>
-        <pre id="status-box" class="code-box">點擊重新整理…</pre>
+        <button id="btn-status" class="btn btn-primary btn-block" type="button">重新整理系統狀態 / Refresh status</button>
+        <pre id="status-box" class="code-box">點擊重新整理… / Click refresh…</pre>
       </div>
     </section>
 
@@ -215,9 +245,9 @@ curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/models"</pre>
   </main>
 
   <footer class="footer">
-    Phase 1 · token 僅存瀏覽器 · API Keys 存 KV（加密） · Cloudflare Worker · build 20260724v4
+    Phase 1 · token in browser only · API Keys + Account Pool in KV · Cloudflare Worker · build 20260724v6
   </footer>
 
-  <script src="/js/app.js?v=20260724v4"></script>
+  <script src="/js/app.js?v=20260724v6"></script>
 </body>
 </html>

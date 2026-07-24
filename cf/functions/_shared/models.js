@@ -80,7 +80,7 @@ export const MODELS = {
     tag: "PRO",
     supports_quality: true,
     default_resolution: "1K",
-    notes: "quality=low|medium|high · may return MODEL_NOT_ALLOWED or lock when pool credits=0 · prefer low",
+    notes: "prefer quality=low · medium OK · high often locked when pool=0 · auto-retry/fallback enabled",
     supports_image_ref: true,
     max_image_refs: 3,
   },

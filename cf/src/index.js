@@ -1,7 +1,7 @@
 /**
  * Cloudflare Worker entry — static assets + /api/* + /v1/* handlers.
  * Live: https://faa.kinai.workers.dev
- * build: 2026-07-24-v4-api-keys
+ * build: 2026-07-24-v6-account-pool
  */
 import {
   apiMeta,
@@ -18,9 +18,17 @@ import {
   apiGallery,
 } from "./routes.js";
 import { apiKeysList, apiKeysCreate, apiKeysRevoke } from "./routes-keys.js";
+import {
+  apiPoolList,
+  apiPoolStats,
+  apiPoolAdd,
+  apiPoolUpdate,
+  apiPoolRemove,
+  apiPoolRelease,
+} from "./routes-pool.js";
 import { v1Models, v1Me, v1Generate, v1Job, v1History } from "./routes-v1.js";
 
-const BUILD = "2026-07-24-v4-api-keys";
+const BUILD = "2026-07-24-v6-account-pool";
 
 function ctx(request, env, executionCtx, params = {}) {
   return {
@@ -48,7 +56,7 @@ function corsPreflight() {
     status: 204,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
       "Access-Control-Allow-Headers":
         "Content-Type, Authorization, X-Api-Key, X-User-Id, X-User-Token",
       "Access-Control-Max-Age": "86400",
@@ -84,6 +92,16 @@ async function handleApi(request, env, executionCtx) {
   if (method === "POST" && path === "/api/keys") return apiKeysCreate(base);
   let params = match(path, "/api/keys/:id");
   if (params && method === "DELETE") return apiKeysRevoke({ ...base, params });
+
+  // --- Service account pool (session) ---
+  if (method === "GET" && path === "/api/pool") return apiPoolList(base);
+  if (method === "GET" && path === "/api/pool/stats") return apiPoolStats(base);
+  if (method === "POST" && path === "/api/pool") return apiPoolAdd(base);
+  params = match(path, "/api/pool/:id");
+  if (params && method === "PATCH") return apiPoolUpdate({ ...base, params });
+  if (params && method === "DELETE") return apiPoolRemove({ ...base, params });
+  params = match(path, "/api/pool/:id/release");
+  if (params && method === "POST") return apiPoolRelease({ ...base, params });
 
   params = match(path, "/api/job/:chatId");
   if (params && method === "GET") return apiJob({ ...base, params });
@@ -121,7 +139,7 @@ export default {
           ok: true,
           build: BUILD,
           runtime: "cloudflare-worker",
-          features: ["api-keys", "v1"],
+          features: ["api-keys", "v1", "gpt2-smart", "account-pool"],
         }),
         {
           status: 200,

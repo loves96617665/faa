@@ -1,7 +1,7 @@
 /* DaFreeAi Studio — Cloudflare frontend
  * Credentials live in browser localStorage only.
  * All API calls send X-User-Id / X-User-Token headers.
- * build: 2026-07-24-v4-api-keys
+ * build: 2026-07-24-v6-account-pool
  */
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -97,13 +97,19 @@
   function friendlyError(msg) {
     const s = String(msg || "");
     if (/MODEL_NOT_ALLOWED_ON_UNLIMITED_PACKAGE/i.test(s)) {
-      return `${s} → 請改用 nano-banana-2-lite，或降低 quality`;
+      return `${s} → 請改用 nano-banana-2-lite，或降低 quality / use lite or lower quality`;
     }
     if (/All accounts are currently inactive|is locked/i.test(s)) {
-      return `${s} → 上游帳號池鎖定，請稍後或改用 nano-banana-2-lite`;
+      return `${s} → 上游帳號池鎖定 / upstream locked — retry or use nano-banana-2-lite`;
     }
     if (/Generation in progress/i.test(s)) {
-      return `${s} → 請等目前生成完成後再試`;
+      return `${s} → 請等目前生成完成 / wait for current job, or add more pool accounts`;
+    }
+    if (/帳號池忙碌|POOL_BUSY|free=0/i.test(s)) {
+      return `${s} → 池內無空閒帳號 / pool busy — add accounts or retry`;
+    }
+    if (/prompt limit retry|diffrent prompt|different prompt/i.test(s)) {
+      return `${s} → 請換不同 prompt / change prompt slightly`;
     }
     if (typeof msg === "object" && msg?.message) {
       const hint = msg.hint ? `（${msg.hint}）` : "";
@@ -289,6 +295,7 @@
         btn.classList.add("active");
         $("panel-" + btn.dataset.tab).classList.add("active");
         if (btn.dataset.tab === "api") loadKeys();
+        if (btn.dataset.tab === "pool") loadPool();
       });
     });
   }
@@ -495,14 +502,35 @@
         state.currentModel = data.model || model;
         const submit = data.submit || {};
         const bal = submit.bananas?.balance ?? submit.bananas;
+        const adj = Array.isArray(data.adjustments) && data.adjustments.length
+          ? data.adjustments.join(" | ")
+          : "";
         $("result-meta").textContent = [
           `status=submitted`,
           `chatId=${data.chatId}`,
           `model=${data.model || model}`,
+          data.originalModel && data.originalModel !== data.model
+            ? `originalModel=${data.originalModel}`
+            : null,
+          data.fallbackUsed ? `fallbackUsed=true` : null,
+          data.fromPool ? `fromPool=true account=${data.poolAccount?.id || "?"}` : `fromPool=false`,
+          data.poolStats
+            ? `pool free=${data.poolStats.free}/${data.poolStats.enabled}`
+            : null,
+          adj ? `adjustments=${adj}` : null,
           `bananaCost=${submit.bananaCost ?? "—"}`,
           `balance=${bal ?? "—"}`,
-        ].join("\n");
-        setStatus($("gen-status"), `已提交 chatId=${data.chatId}，開始輪詢…`, "warn");
+          data.poolCredits != null ? `poolCredits=${data.poolCredits}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        const adjHint = adj ? ` · ${adj}` : "";
+        const poolHint = data.fromPool ? " · pool" : "";
+        setStatus(
+          $("gen-status"),
+          `已提交 chatId=${data.chatId}${data.fallbackUsed ? "（已 fallback）" : ""}${poolHint}，開始輪詢…${adjHint}`,
+          "warn"
+        );
 
         const final = await pollJob({
           chatId: data.chatId,
@@ -784,6 +812,125 @@ curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/jobs/<chatId>"`;
     $("btn-gallery").onclick = loadGallery;
   }
 
+  function renderPoolStats(stats) {
+    const s = stats || {};
+    $("pool-stats").textContent =
+      `total=${s.total ?? 0} · enabled=${s.enabled ?? 0} · free=${s.free ?? 0} · busy=${s.busy ?? 0} · disabled=${s.disabled ?? 0}`;
+  }
+
+  async function loadPool() {
+    if (!state.creds) {
+      setStatus($("pool-status"), "請先登入 / Please login first", "err");
+      $("pool-list").innerHTML = "";
+      return;
+    }
+    setStatus($("pool-status"), "載入中… / Loading…");
+    const data = await api("/api/pool");
+    if (!data.ok) {
+      setStatus($("pool-status"), friendlyError(data.error || "失敗 / failed"), "err");
+      return;
+    }
+    renderPoolStats(data.stats);
+    const list = $("pool-list");
+    list.innerHTML = "";
+    (data.accounts || []).forEach((a) => {
+      const row = document.createElement("div");
+      row.className = "key-item";
+      const busy = a.busy ? "BUSY" : "FREE";
+      const en = a.enabled === false ? "disabled" : "enabled";
+      row.innerHTML = `
+        <div class="key-meta">
+          <div class="t">${escapeHtml(a.name || a.id)} · <code>${escapeHtml(String(a.userId || ""))}</code> · ${busy} · ${en}</div>
+          <div class="p">id=${escapeHtml(a.id)} · ok=${a.successCount || 0} err=${a.errorCount || 0}${
+            a.lastError ? ` · lastError=${escapeHtml(String(a.lastError).slice(0, 80))}` : ""
+          }</div>
+        </div>
+        <div class="row" style="gap:6px;flex-wrap:nowrap">
+          <button type="button" class="btn btn-ghost btn-sm" data-act="toggle">${a.enabled === false ? "啟用" : "停用"}</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-act="release">釋放</button>
+          <button type="button" class="btn btn-danger btn-sm" data-act="remove">移除</button>
+        </div>
+      `;
+      row.querySelector('[data-act="toggle"]').onclick = async () => {
+        const res = await api(`/api/pool/${encodeURIComponent(a.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ enabled: a.enabled === false }),
+        });
+        if (!res.ok) return setStatus($("pool-status"), friendlyError(res.error || "失敗"), "err");
+        setStatus($("pool-status"), `已更新 ${a.id}`, "ok");
+        loadPool();
+      };
+      row.querySelector('[data-act="release"]').onclick = async () => {
+        const res = await api(`/api/pool/${encodeURIComponent(a.id)}/release`, {
+          method: "POST",
+          body: "{}",
+        });
+        if (!res.ok) return setStatus($("pool-status"), friendlyError(res.error || "失敗"), "err");
+        setStatus($("pool-status"), `已釋放 ${a.id}`, "ok");
+        loadPool();
+      };
+      row.querySelector('[data-act="remove"]').onclick = async () => {
+        if (!confirm(`移除 / Remove ${a.name || a.id}?`)) return;
+        const res = await api(`/api/pool/${encodeURIComponent(a.id)}`, { method: "DELETE" });
+        if (!res.ok) return setStatus($("pool-status"), friendlyError(res.error || "失敗"), "err");
+        setStatus($("pool-status"), `已移除 ${a.id}`, "ok");
+        loadPool();
+      };
+      list.appendChild(row);
+    });
+    if (!(data.accounts || []).length) {
+      list.innerHTML = '<p class="muted small">池內尚無帳號 / No pool accounts yet</p>';
+    }
+    setStatus($("pool-status"), `共 ${(data.accounts || []).length} 組 / ${(data.accounts || []).length} account(s)`, "ok");
+  }
+
+  function bindPool() {
+    if (!$("btn-pool-refresh")) return;
+    $("btn-pool-refresh").onclick = loadPool;
+    $("btn-pool-add-session").onclick = async () => {
+      if (!state.creds) return setStatus($("pool-status"), "請先登入 / Please login", "err");
+      setStatus($("pool-status"), "加入中… / Adding…", "warn");
+      const data = await api("/api/pool", {
+        method: "POST",
+        body: JSON.stringify({
+          name: state.creds.username || state.creds.id,
+          username: state.creds.username || "",
+        }),
+      });
+      if (!data.ok) {
+        setStatus($("pool-status"), friendlyError(data.error || "失敗"), "err");
+        return;
+      }
+      setStatus($("pool-status"), `已加入 ${data.account?.id || ""}`, "ok");
+      loadPool();
+    };
+    $("btn-pool-add").onclick = async () => {
+      if (!state.creds) return setStatus($("pool-status"), "請先登入（管理用）/ Login required", "err");
+      const userId = $("pool-uid").value.trim();
+      const token = $("pool-token").value.trim();
+      if (!userId || !token) {
+        return setStatus($("pool-status"), "userId 與 token 必填 / required", "err");
+      }
+      setStatus($("pool-status"), "加入中… / Adding…", "warn");
+      const data = await api("/api/pool", {
+        method: "POST",
+        body: JSON.stringify({
+          userId,
+          token,
+          username: $("pool-username").value.trim(),
+          name: $("pool-name").value.trim() || userId,
+        }),
+      });
+      if (!data.ok) {
+        setStatus($("pool-status"), friendlyError(data.error || "失敗"), "err");
+        return;
+      }
+      $("pool-token").value = "";
+      setStatus($("pool-status"), `已加入 ${data.account?.id || ""}`, "ok");
+      loadPool();
+    };
+  }
+
   async function init() {
     loadCreds();
     bindTabs();
@@ -791,6 +938,7 @@ curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/jobs/<chatId>"`;
     bindGenerate();
     bindHistory();
     bindKeys();
+    bindPool();
     bindStatus();
     try {
       await loadMeta();
