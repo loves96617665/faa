@@ -6,8 +6,6 @@ Professional reverse-engineered client and Cloudflare-hosted studio for [dafreea
 
 | | |
 |---|---|
-| **Live Studio** | https://faa.kinai.workers.dev |
-| **API Docs (HTML)** | https://faa.kinai.workers.dev/docs.html |
 | **v1 API reference** | [docs/v1-api.md](./docs/v1-api.md) |
 | **GitHub** | https://github.com/loves96617665/faa |
 | **Build** | `2026-07-24-v6-account-pool` |
@@ -46,7 +44,7 @@ The production stack is **Cloudflare Workers + static assets** (no Flask disk, n
 
 ## Quick start (web UI)
 
-1. Open **https://faa.kinai.workers.dev**
+1. Open your deployed Studio (or local `cf` dev server)
 2. Go to **Login**
 3. On [dafreeai.site](https://www.dafreeai.site) (already logged in), open DevTools Console and run:
 
@@ -117,14 +115,14 @@ Authorization: Bearer faa_sk_...
 
 - Full key is shown **only once** at creation — copy it immediately
 - Manage keys: list / revoke in this tab
-- Live docs: [/docs.html](https://faa.kinai.workers.dev/docs.html)
+- In-app docs: `/docs.html` on your deployment
 - Markdown: [docs/v1-api.md](./docs/v1-api.md)
 
 Example:
 
 ```bash
 export FAA_KEY=faa_sk_...
-export BASE=https://faa.kinai.workers.dev
+export BASE=https://YOUR_WORKER.workers.dev
 
 curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/models"
 
@@ -211,8 +209,7 @@ npx wrangler login   # or set CLOUDFLARE_API_TOKEN
 npm run deploy
 ```
 
-Worker name: `faa` → `https://faa.<subdomain>.workers.dev`  
-Live: **https://faa.kinai.workers.dev**
+Worker name: `faa` → `https://faa.<subdomain>.workers.dev`
 
 Local dev:
 
@@ -331,9 +328,7 @@ dafreeai-studio/
 
 ## Links
 
-- Studio: https://faa.kinai.workers.dev  
-- API docs page: https://faa.kinai.workers.dev/docs.html  
-- Official site: https://www.dafreeai.site  
-- Chinese README: [README.md](./README.md)  
-- CF deploy notes: [cf/README.md](./cf/README.md)  
-- v1 API: [docs/v1-api.md](./docs/v1-api.md)  
+- Official site: https://www.dafreeai.site
+- Chinese README: [README.md](./README.md)
+- CF deploy notes: [cf/README.md](./cf/README.md)
+- v1 API: [docs/v1-api.md](./docs/v1-api.md)
