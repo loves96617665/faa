@@ -85,6 +85,18 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // Health marker so we can confirm the Worker script is active
+    if (path === "/api/__version") {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          build: "2026-07-24-v2-worker-routes",
+          runtime: "cloudflare-worker",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json; charset=utf-8" } }
+      );
+    }
+
     // Always handle API in worker (never fall through to SPA assets)
     if (path === "/api" || path.startsWith("/api/")) {
       try {
@@ -95,6 +107,13 @@ export default {
           { status: 500, headers: { "Content-Type": "application/json; charset=utf-8" } }
         );
       }
+    }
+
+    // Compatibility: old Flask paths under /static/*
+    if (path.startsWith("/static/")) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = path.replace(/^\/static/, "") || "/";
+      if (env.ASSETS) return env.ASSETS.fetch(new Request(rewritten, request));
     }
 
     if (env.ASSETS) {

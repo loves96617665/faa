@@ -1,6 +1,7 @@
 /* DaFreeAi Studio — Cloudflare Phase 1 frontend
  * Credentials live in browser localStorage only.
  * All API calls send X-User-Id / X-User-Token headers.
+ * build: 2026-07-24-v2-worker-routes
  */
 (() => {
   const $ = (id) => document.getElementById(id);
