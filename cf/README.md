@@ -2,6 +2,8 @@
 
 **Cloudflare Worker + Static Assets**（目標：`https://faa.kinai.workers.dev`），不依賴 Flask / 本機磁碟。
 
+English product / UI guide: [../README.en.md](../README.en.md) · Live: https://faa.kinai.workers.dev · Docs: [/docs.html](https://faa.kinai.workers.dev/docs.html)
+
 ## 架構
 
 ```

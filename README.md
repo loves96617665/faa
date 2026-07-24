@@ -1,6 +1,16 @@
 # DaFreeAi Studio
 
+**中文說明** · [English UI / product guide](./README.en.md)
+
 專業逆向 API 生成工具，對應網站：`https://www.dafreeai.site`
+
+| | |
+|---|---|
+| **線上 Studio** | https://faa.kinai.workers.dev |
+| **API 文件** | https://faa.kinai.workers.dev/docs.html |
+| **英文介面 README** | [README.en.md](./README.en.md) |
+| **v1 API** | [docs/v1-api.md](./docs/v1-api.md) |
+| **GitHub** | https://github.com/loves96617665/faa |
 
 功能：
 - **Gradio Web UI**（登入 / 生成 / 歷史 / 狀態）
