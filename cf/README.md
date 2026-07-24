@@ -1,6 +1,6 @@
 # DaFreeAi Studio — Cloudflare Phase 1 MVP
 
-純 **Cloudflare Pages + Pages Functions** 部署，不依賴 Flask / 本機磁碟。
+**Cloudflare Worker + Static Assets**（目標：`https://faa.kinai.workers.dev`），不依賴 Flask / 本機磁碟。
 
 ## 架構
 
@@ -8,8 +8,9 @@
 Browser (localStorage token)
     │  X-User-Id / X-User-Token
     ▼
-Pages (public/)  +  Functions (functions/api/*)
-    │  fetch
+Worker (src/index.js)  +  Assets (public/)
+    │  /api/* → API handlers
+    │  /*     → static HTML/CSS/JS
     ▼
 https://www.dafreeai.site
 ```
@@ -26,30 +27,15 @@ https://www.dafreeai.site
 ```
 cf/
   package.json
-  wrangler.toml
-  public/                 # 靜態前端
+  wrangler.toml          # name=faa, assets=public, run_worker_first=/api/*
+  src/index.js           # Worker 路由入口
+  public/                # 靜態前端（路徑 /css /js，不是 /static）
     index.html
     css/style.css
     js/app.js
-  functions/
+  functions/             # 被 src/index.js import 的 API 模組
     _shared/
-      models.js           # 模型目錄 + settings
-      http.js             # json/err/auth helpers
-      client.js           # upstream dafreeai client
     api/
-      meta.js
-      status.js
-      generate.js
-      history.js
-      history/[chatId].js
-      job/[chatId].js
-      gallery.js
-      auth/
-        login-url.js
-        exchange.js
-        save.js
-        me.js
-        accept-terms.js
 ```
 
 ## 本地開發
@@ -57,55 +43,46 @@ cf/
 ```bash
 cd cf
 npm install
-npx wrangler pages dev public --compatibility-date=2024-11-01
-```
-
-或：
-
-```bash
 npm run dev
 ```
 
-開啟終端顯示的本機 URL（通常 `http://127.0.0.1:8788`）。
+開啟終端顯示的本機 URL（通常 `http://127.0.0.1:8787`）。
 
-> Wrangler 會自動把 `functions/` 掛到 `/api/*`。
-
-## 部署到 Cloudflare Pages
-
-### 方式 A：CLI
+## 部署（必須用 cf/ + wrangler）
 
 ```bash
 cd cf
 npm install
 npx wrangler login
-npx wrangler pages project create dafreeai-studio   # 首次
+# 或: set CLOUDFLARE_API_TOKEN=你的token
 npm run deploy
 ```
 
-### 方式 B：Dashboard（Git 連線）
+Worker 名稱：`faa` → `https://faa.<subdomain>.workers.dev`
 
-1. Cloudflare Dashboard → **Workers & Pages** → **Create** → **Pages**
-2. 連 Git repo，或 **Direct Upload** 上傳 `public/`（Functions 需用 Git 或 Wrangler 帶 `functions/`）
-3. Build 設定（若用 monorepo）：
-   - **Root directory**: `cf`
-   - **Build command**: （可留空，純靜態）
-   - **Build output directory**: `public`
-4. Environment variables：
-   - `DAFREEAI_BASE_URL` = `https://www.dafreeai.site`（可選，已有預設）
+### 常見錯誤（你現在遇到的）
+
+| 症狀 | 原因 | 解法 |
+|------|------|------|
+| 無樣式 / 破版 | 部署了 Flask 版 `static/index.html`（引用 `/static/css/...`） | 必須部署 `cf/public`（引用 `/css` `/js`） |
+| `/api/*` 404 | 只上傳靜態檔、沒有 Worker 路由 | 在 `cf/` 執行 `npm run deploy` |
+| 登入後 API 失敗 | 舊前端不帶 `X-User-*` | 使用 `cf/public/js/app.js` |
+
+**錯誤示範**：把 repo 根目錄的 `static/` 當 Workers 靜態資源上傳。  
+**正確**：`cd cf && wrangler deploy`（會打包 `src/index.js` + `public/`）。
 
 ### 自訂網域
 
-1. 域名 NS 已指向 Cloudflare
-2. Pages 專案 → **Custom domains** → 新增 `studio.yourdomain.com`
-3. 等 SSL 生效即可
+1. 域名 NS 已指向 Cloudflare  
+2. Worker `faa` → **Settings → Domains & Routes** → 新增自訂網域  
+3. 等 SSL 生效
 
 ## 使用流程
 
-1. 開啟網站 → **登入** 分頁
-2. 官網已登入時，Console：`copy(localStorage.getItem('dafreeai_user'))`
-3. 貼到 JSON 框 → **從 JSON 登入並儲存**（寫入瀏覽器 localStorage）
-4. **生成** 分頁選模型、輸入 prompt → 開始生成
-5. 前端自動輪詢 job；完成後預覽遠端圖片/影片
+1. 開啟網站 → **登入** 分頁  
+2. 官網 Console：`copy(localStorage.getItem('dafreeai_user'))`  
+3. 貼 JSON → 儲存（寫入瀏覽器 localStorage）  
+4. **生成** → 自動輪詢 → 預覽遠端媒體  
 
 ## API 一覽
 
@@ -115,7 +92,7 @@ npm run deploy
 | GET | `/api/status` | 建議 | 餘額 / pool / active |
 | GET | `/api/auth/login-url` | 否 | Discord OAuth URL |
 | POST | `/api/auth/exchange` | 否 | code → user+token |
-| POST | `/api/auth/save` | 否 | 驗證 JSON/手動欄位（不落盤） |
+| POST | `/api/auth/save` | 否 | 驗證 JSON（不落盤） |
 | GET | `/api/auth/me` | 是 | 登入狀態 + balance |
 | POST | `/api/auth/accept-terms` | 是 | 接受條款 |
 | POST | `/api/generate` | 是 | 提交生成（非阻塞） |
@@ -134,12 +111,11 @@ X-User-Token: <token>
 ## 安全注意
 
 - Phase 1 token 在瀏覽器，**任何人開你的瀏覽器都能用**
-- 建議之後：Cloudflare Access 鎖站、或 Phase 2 改 HttpOnly cookie + 伺服器 session
 - 勿把 `dafreeai_user.json` 提交到公開 repo
+- 建議之後：Cloudflare Access 鎖站
 
 ## Phase 2 預告
 
-- R2 儲存生成結果 + 作品庫
-- 可選 Durable Object / KV 做 job 狀態快取
-- Cloudflare Access / 簡易密碼閘
-- 伺服器端 session（token 不進 localStorage）
+- R2 儲存生成結果 + 作品庫  
+- Cloudflare Access / 簡易密碼閘  
+- 伺服器端 session（token 不進 localStorage）  
