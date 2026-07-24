@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DaFreeAi Studio</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="bg-glow glow-1"></div>
+  <div class="bg-glow glow-2"></div>
+
+  <header class="header">
+    <div class="brand">
+      <div class="logo">D</div>
+      <div>
+        <h1>DaFreeAi Studio</h1>
+        <p class="subtitle">本機專業生成介面 · dafreeai.site API</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="auth-badge" class="badge">未登入</span>
+      <a class="link" href="https://www.dafreeai.site" target="_blank" rel="noopener">官網</a>
+      <button id="btn-refresh-status" class="btn btn-ghost" type="button">重新整理狀態</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel controls">
+      <div class="tabs">
+        <button class="tab active" data-tab="auth" type="button">登入</button>
+        <button class="tab" data-tab="generate" type="button">生成</button>
+        <button class="tab" data-tab="history" type="button">歷史</button>
+        <button class="tab" data-tab="status" type="button">狀態</button>
+      </div>
+
+      <!-- Auth -->
+      <div id="panel-auth" class="tab-panel active">
+        <div class="info-box">
+          建議：官網已登入時，Console 執行
+          <code>copy(localStorage.getItem('dafreeai_user'))</code>
+          後貼到下方。OAuth code 只能用一次。
+        </div>
+
+        <label class="field">
+          <span>localStorage dafreeai_user JSON</span>
+          <textarea id="auth-json" rows="6" placeholder='{"id":"...","token":"...","username":"..."}'></textarea>
+        </label>
+        <button id="btn-save-json" class="btn btn-primary btn-block" type="button">從 JSON 登入並儲存</button>
+
+        <div class="divider">或手動填入</div>
+        <label class="field"><span>userId</span><input id="auth-uid" type="text" /></label>
+        <label class="field"><span>token</span><input id="auth-token" type="password" /></label>
+        <label class="field"><span>username（可選）</span><input id="auth-name" type="text" /></label>
+        <div class="row">
+          <button id="btn-save-manual" class="btn btn-primary" type="button">儲存憑證</button>
+          <button id="btn-accept-terms" class="btn btn-ghost" type="button">接受條款</button>
+        </div>
+
+        <div class="divider">OAuth 輔助</div>
+        <button id="btn-login-url" class="btn btn-ghost btn-block" type="button">取得 Discord 登入連結</button>
+        <label class="field"><span>OAuth URL</span><textarea id="oauth-url" rows="2" readonly></textarea></label>
+        <label class="field"><span>callback code</span><input id="oauth-code" type="text" placeholder="貼上 code" /></label>
+        <button id="btn-exchange" class="btn btn-secondary btn-block" type="button">用 code 換 token</button>
+        <p id="auth-status" class="status"></p>
+      </div>
+
+      <!-- Generate -->
+      <div id="panel-generate" class="tab-panel">
+        <label class="field">
+          <span>提示詞 Prompt</span>
+          <textarea id="gen-prompt" rows="5" placeholder="a cute orange cat, soft morning light, photorealistic"></textarea>
+        </label>
+
+        <div class="row">
+          <label class="field">
+            <span>類型</span>
+            <select id="gen-type">
+              <option value="image">image</option>
+              <option value="video">video</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>模型</span>
+            <select id="gen-model"></select>
+          </label>
+        </div>
+        <p id="model-info" class="muted small"></p>
+
+        <div class="row">
+          <label class="field"><span>Aspect</span><select id="gen-aspect"></select></label>
+          <label class="field"><span>Resolution</span><select id="gen-resolution"></select></label>
+        </div>
+        <div class="row">
+          <label class="field" id="quality-field"><span>Quality</span><select id="gen-quality"></select></label>
+          <label class="field" id="duration-field"><span>Duration (s)</span><input id="gen-duration" type="number" min="1" max="20" value="5" /></label>
+        </div>
+        <label class="check" id="audio-field">
+          <input id="gen-audio" type="checkbox" checked />
+          <span>Audio（影片）</span>
+        </label>
+
+        <label class="field">
+          <span>參考圖 URL（可選，每行一個，最多 3）</span>
+          <textarea id="gen-refs" rows="2" placeholder="https://..."></textarea>
+        </label>
+
+        <details class="advanced">
+          <summary>進階</summary>
+          <label class="field"><span>chatId（空白=自動）</span><input id="gen-chatid" type="text" /></label>
+          <div class="row">
+            <label class="field"><span>輪詢間隔秒</span><input id="gen-poll" type="number" value="3" min="1" step="0.5" /></label>
+            <label class="field"><span>逾時秒</span><input id="gen-timeout" type="number" value="180" min="30" /></label>
+          </div>
+          <label class="check"><input id="gen-download" type="checkbox" checked /><span>完成後自動下載</span></label>
+        </details>
+
+        <div class="presets">
+          <span class="muted">快速填入：</span>
+          <button type="button" class="chip" data-prompt="a cute orange cat sitting on a windowsill, soft sunlight">橘貓</button>
+          <button type="button" class="chip" data-prompt="cyberpunk city at night, neon lights, rain, cinematic">賽博龐克</button>
+          <button type="button" class="chip" data-prompt="anime girl with silver hair, cherry blossoms, detailed eyes">動漫</button>
+        </div>
+
+        <button id="btn-generate" class="btn btn-primary btn-block" type="button">
+          <span class="btn-label">開始生成</span>
+          <span class="spinner hidden"></span>
+        </button>
+        <p id="gen-status" class="status"></p>
+      </div>
+
+      <!-- History -->
+      <div id="panel-history" class="tab-panel">
+        <div class="row">
+          <label class="field"><span>limit</span><input id="hist-limit" type="number" value="15" min="1" max="50" /></label>
+          <label class="field"><span>offset</span><input id="hist-offset" type="number" value="0" min="0" /></label>
+        </div>
+        <button id="btn-history" class="btn btn-primary btn-block" type="button">重新整理歷史</button>
+        <p id="hist-summary" class="muted small"></p>
+        <div id="hist-list" class="hist-list"></div>
+        <label class="field"><span>刪除 chatId</span><input id="hist-del" type="text" /></label>
+        <button id="btn-hist-del" class="btn btn-danger btn-block" type="button">刪除該 chat</button>
+        <p id="hist-status" class="status"></p>
+      </div>
+
+      <!-- Status -->
+      <div id="panel-status" class="tab-panel">
+        <button id="btn-status" class="btn btn-primary btn-block" type="button">重新整理系統狀態</button>
+        <pre id="status-box" class="code-box">點擊重新整理…</pre>
+      </div>
+    </section>
+
+    <section class="panel preview">
+      <div class="preview-header">
+        <h2>預覽 / 結果</h2>
+        <button id="btn-gallery" class="btn btn-ghost" type="button">本機作品庫</button>
+      </div>
+      <div id="result-meta" class="info-box">尚未生成</div>
+      <div id="preview-wrap" class="preview-wrap empty">
+        <p class="muted">生成完成後圖片 / 影片會顯示在這裡</p>
+      </div>
+      <div class="preview-actions">
+        <a id="btn-open-remote" class="btn btn-ghost hidden" href="#" target="_blank" rel="noopener">開啟遠端 URL</a>
+        <a id="btn-open-local" class="btn btn-ghost hidden" href="#" target="_blank" rel="noopener">開啟本機檔</a>
+        <button id="btn-download-media" class="btn btn-secondary hidden" type="button">下載目前媒體</button>
+      </div>
+      <div id="gallery" class="gallery"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    token 僅存本機 · 綁定 127.0.0.1:7860 · 請遵守網站條款
+  </footer>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

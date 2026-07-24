@@ -1,0 +1,30 @@
+# Secrets / credentials — NEVER commit
+dafreeai_user.json
+config.json
+*.token
+.env
+.env.*
+history_poll.json
+
+# Local outputs
+output/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Node / CF
+node_modules/
+cf/node_modules/
+.wrangler/
+dist/
+.DS_Store
+Thumbs.db
+
+# IDE / OS
+.idea/
+.vscode/
+*.log
+.cache/

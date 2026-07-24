@@ -1,0 +1,14 @@
+{
+  "base_url": "https://www.dafreeai.site",
+  "default_model": "nano-banana-2-lite",
+  "default_aspect": "1:1",
+  "default_resolution": "1K",
+  "default_quality": "low",
+  "poll_interval": 3.0,
+  "poll_timeout": 180,
+  "output_dir": "output",
+  "user": {
+    "id": "YOUR_DISCORD_USER_ID",
+    "token": "YOUR_SESSION_TOKEN"
+  }
+}

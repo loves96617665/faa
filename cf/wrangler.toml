@@ -1,0 +1,7 @@
+# Cloudflare Pages project config (optional helpers for local wrangler)
+name = "dafreeai-studio"
+compatibility_date = "2024-11-01"
+pages_build_output_dir = "public"
+
+[vars]
+DAFREEAI_BASE_URL = "https://www.dafreeai.site"
