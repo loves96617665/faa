@@ -49,6 +49,15 @@ export function classifyError(message, status = null) {
     };
   }
 
+  if (/kv put\(\) limit|put\(\) limit exceeded|kv_limit/i.test(lower)) {
+    return {
+      code: "KV_LIMIT",
+      http: 503,
+      message: msg,
+      hint: "Cloudflare 免費 KV 當日寫入額度已用完（約 1000 次/天，UTC 午夜重置）。讀取/輪詢仍可用；新建 Key、帳號池、pool 生成需等重置或升級 Workers Paid。",
+    };
+  }
+
   if (status === 429 || /rate limit|too many/i.test(lower)) {
     return {
       code: "RATE_LIMITED",

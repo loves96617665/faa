@@ -237,12 +237,18 @@ export async function resolveApiKey(env, rawKey) {
     throw e;
   }
 
-  // touch lastUsedAt (best-effort, no await chain break)
-  rec.lastUsedAt = Date.now();
-  try {
-    await kv.put(`key:${keyHash}`, JSON.stringify(rec));
-  } catch {
-    /* ignore */
+  // Touch lastUsedAt at most once per 15 minutes to avoid burning free KV write quota.
+  // Job polling every ~3s would otherwise write on every request.
+  const now = Date.now();
+  const TOUCH_MIN_MS = 15 * 60 * 1000;
+  const prev = Number(rec.lastUsedAt) || 0;
+  if (!prev || now - prev >= TOUCH_MIN_MS) {
+    rec.lastUsedAt = now;
+    try {
+      await kv.put(`key:${keyHash}`, JSON.stringify(rec));
+    } catch {
+      /* ignore — e.g. daily put() limit exceeded */
+    }
   }
 
   return {
@@ -254,13 +260,37 @@ export async function resolveApiKey(env, rawKey) {
   };
 }
 
-/** Simple per-key rate limit using KV. Returns true if allowed. */
+/**
+ * Per-key rate limit via Cache API (does NOT consume KV write quota).
+ * Fail-open if cache unavailable or errors — prefer availability over hard limit
+ * when free-tier KV is exhausted.
+ * Returns true if allowed.
+ */
 export async function checkRateLimit(env, keyId, { bucket = "all", limit = 30, windowSec = 60 } = {}) {
-  const kv = requireKv(env);
-  const slot = Math.floor(Date.now() / (windowSec * 1000));
-  const k = `rl:${keyId}:${bucket}:${slot}`;
-  const cur = Number((await kv.get(k)) || "0") || 0;
-  if (cur >= limit) return false;
-  await kv.put(k, String(cur + 1), { expirationTtl: windowSec * 2 });
-  return true;
+  try {
+    const slot = Math.floor(Date.now() / (windowSec * 1000));
+    const cacheKey = new Request(
+      `https://faa-rl.internal/rl/${encodeURIComponent(String(keyId))}/${encodeURIComponent(String(bucket))}/${slot}`
+    );
+    const cache = caches.default;
+    const hit = await cache.match(cacheKey);
+    let cur = 0;
+    if (hit) {
+      cur = Number(await hit.text()) || 0;
+    }
+    if (cur >= limit) return false;
+    const next = cur + 1;
+    const res = new Response(String(next), {
+      headers: {
+        "Cache-Control": `max-age=${Math.max(60, windowSec * 2)}`,
+        "Content-Type": "text/plain",
+      },
+    });
+    // waitUntil not available here; put is fire-and-forget enough for soft RL
+    await cache.put(cacheKey, res);
+    return true;
+  } catch {
+    // Fail open: do not block API when rate-limit storage fails
+    return true;
+  }
 }

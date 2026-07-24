@@ -70,8 +70,26 @@ async function getIndex(kv) {
   }
 }
 
+async function kvPut(kv, key, value, opts) {
+  try {
+    if (opts) await kv.put(key, value, opts);
+    else await kv.put(key, value);
+  } catch (err) {
+    const msg = String(err?.message || err || "");
+    if (/put\(\) limit|limit exceeded|429|quota/i.test(msg)) {
+      const e = new Error(
+        "KV put() limit exceeded for the day. Free plan write quota is exhausted; wait for UTC midnight reset, upgrade Workers Paid, or reduce polling. Auth/rate-limit no longer write KV every request."
+      );
+      e.status = 503;
+      e.code = "KV_LIMIT";
+      throw e;
+    }
+    throw err;
+  }
+}
+
 async function setIndex(kv, ids) {
-  await kv.put("pool:index", JSON.stringify(ids));
+  await kvPut(kv, "pool:index", JSON.stringify(ids));
 }
 
 async function getAccount(kv, id) {
@@ -85,7 +103,7 @@ async function getAccount(kv, id) {
 }
 
 async function putAccount(kv, rec) {
-  await kv.put(`pool:acc:${rec.id}`, JSON.stringify(rec));
+  await kvPut(kv, `pool:acc:${rec.id}`, JSON.stringify(rec));
 }
 
 async function getLock(kv, id) {
@@ -99,7 +117,7 @@ async function getLock(kv, id) {
 }
 
 async function putLock(kv, id, lock, ttlSec) {
-  await kv.put(`pool:lock:${id}`, JSON.stringify(lock), {
+  await kvPut(kv, `pool:lock:${id}`, JSON.stringify(lock), {
     expirationTtl: Math.max(60, ttlSec || Math.ceil(LOCK_TTL_MS / 1000)),
   });
 }
@@ -278,9 +296,8 @@ export async function acquirePoolAccount(env, { jobId, chatId, preferUserId = nu
     if (ex2 && ex2.expiresAt > Date.now()) return null;
   }
 
+  // Only write lock here (1 put). lastUsed/stats update on release to save free KV quota.
   await putLock(kv, pick.id, lock, Math.ceil(LOCK_TTL_MS / 1000));
-  pick.lastUsedAt = now;
-  await putAccount(kv, pick);
 
   const auth = await decryptAuth(env, pick);
   return {
@@ -293,20 +310,30 @@ export async function acquirePoolAccount(env, { jobId, chatId, preferUserId = nu
 export async function releasePoolAccount(env, accountId, { success = true, error = null } = {}) {
   const kv = requireKv(env);
   if (!accountId) return;
-  await delLock(kv, accountId);
+  try {
+    await delLock(kv, accountId);
+  } catch {
+    /* ignore delete failures */
+  }
   const rec = await getAccount(kv, accountId);
   if (!rec) return;
+  rec.lastUsedAt = Date.now();
   if (success) rec.successCount = (rec.successCount || 0) + 1;
   else {
     rec.errorCount = (rec.errorCount || 0) + 1;
     rec.lastError = error ? String(error).slice(0, 200) : null;
   }
-  await putAccount(kv, rec);
+  try {
+    await putAccount(kv, rec);
+  } catch {
+    /* best-effort stats; lock already cleared or TTL will expire */
+  }
 }
 
 export async function saveJobMap(env, jobId, data) {
   const kv = requireKv(env);
-  await kv.put(
+  await kvPut(
+    kv,
     `jobmap:${jobId}`,
     JSON.stringify({ ...data, jobId, updatedAt: Date.now() }),
     { expirationTtl: 60 * 60 * 24 } // 24h

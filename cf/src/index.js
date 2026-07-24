@@ -1,7 +1,6 @@
 /**
  * Cloudflare Worker entry — static assets + /api/* + /v1/* handlers.
- * Live: https://faa.kinai.workers.dev
- * build: 2026-07-24-v6-account-pool
+ * build: 2026-07-24-v6.1-kv-quota
  */
 import {
   apiMeta,
@@ -28,7 +27,7 @@ import {
 } from "./routes-pool.js";
 import { v1Models, v1Me, v1Generate, v1Job, v1History } from "./routes-v1.js";
 
-const BUILD = "2026-07-24-v6-account-pool";
+const BUILD = "2026-07-24-v6.1-kv-quota";
 
 function ctx(request, env, executionCtx, params = {}) {
   return {
