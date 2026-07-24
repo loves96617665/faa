@@ -1,33 +1,32 @@
 /**
- * Cloudflare Worker entry — serves static assets + /api/* handlers.
- * Deploy target: faa.<account>.workers.dev
+ * Cloudflare Worker entry — static assets + /api/* handlers.
+ * Live: https://faa.kinai.workers.dev
  */
+import {
+  apiMeta,
+  apiStatus,
+  apiLoginUrl,
+  apiExchange,
+  apiSave,
+  apiMe,
+  apiAcceptTerms,
+  apiGenerate,
+  apiJob,
+  apiHistory,
+  apiDeleteHistory,
+  apiGallery,
+} from "./routes.js";
 
-import * as meta from "../functions/api/meta.js";
-import * as status from "../functions/api/status.js";
-import * as generate from "../functions/api/generate.js";
-import * as historyList from "../functions/api/history.js";
-import * as historyItem from "../functions/api/history/[chatId].js";
-import * as job from "../functions/api/job/[chatId].js";
-import * as gallery from "../functions/api/gallery.js";
-import * as loginUrl from "../functions/api/auth/login-url.js";
-import * as exchange from "../functions/api/auth/exchange.js";
-import * as save from "../functions/api/auth/save.js";
-import * as me from "../functions/api/auth/me.js";
-import * as acceptTerms from "../functions/api/auth/accept-terms.js";
-
-function ctx(request, env, c) {
+function ctx(request, env, executionCtx, params = {}) {
   return {
     request,
     env,
-    waitUntil: c.waitUntil.bind(c),
-    passThroughOnException: c.passThroughOnException?.bind(c),
-    params: {},
+    waitUntil: executionCtx?.waitUntil?.bind(executionCtx),
+    params,
   };
 }
 
 function match(path, pattern) {
-  // pattern e.g. /api/job/:chatId
   const pp = pattern.split("/").filter(Boolean);
   const sp = path.split("/").filter(Boolean);
   if (pp.length !== sp.length) return null;
@@ -39,45 +38,15 @@ function match(path, pattern) {
   return params;
 }
 
-async function handleApi(request, env, c) {
+async function handleApi(request, env, executionCtx) {
   const url = new URL(request.url);
-  const path = url.pathname.replace(/\/+$/, "") || "/";
+  // normalize trailing slash except root
+  let path = url.pathname;
+  if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
   const method = request.method.toUpperCase();
-  const base = ctx(request, env, c);
+  const base = ctx(request, env, executionCtx);
 
-  // static API map
-  const routes = [
-    ["GET", "/api/meta", meta.onRequestGet],
-    ["GET", "/api/status", status.onRequestGet],
-    ["POST", "/api/generate", generate.onRequestPost],
-    ["GET", "/api/history", historyList.onRequestGet],
-    ["GET", "/api/gallery", gallery.onRequestGet],
-    ["GET", "/api/auth/login-url", loginUrl.onRequestGet],
-    ["POST", "/api/auth/exchange", exchange.onRequestPost],
-    ["POST", "/api/auth/save", save.onRequestPost],
-    ["GET", "/api/auth/me", me.onRequestGet],
-    ["POST", "/api/auth/accept-terms", acceptTerms.onRequestPost],
-  ];
-
-  for (const [m, p, fn] of routes) {
-    if (method === m && path === p) {
-      return fn(base);
-    }
-  }
-
-  // dynamic
-  let params = match(path, "/api/job/:chatId");
-  if (params && method === "GET" && job.onRequestGet) {
-    return job.onRequestGet({ ...base, params });
-  }
-
-  params = match(path, "/api/history/:chatId");
-  if (params && method === "DELETE" && historyItem.onRequestDelete) {
-    return historyItem.onRequestDelete({ ...base, params });
-  }
-
-  // CORS preflight for API
-  if (method === "OPTIONS" && path.startsWith("/api/")) {
+  if (method === "OPTIONS" && path.startsWith("/api")) {
     return new Response(null, {
       status: 204,
       headers: {
@@ -88,36 +57,49 @@ async function handleApi(request, env, c) {
     });
   }
 
-  return null;
+  if (method === "GET" && path === "/api/meta") return apiMeta(base);
+  if (method === "GET" && path === "/api/status") return apiStatus(base);
+  if (method === "POST" && path === "/api/generate") return apiGenerate(base);
+  if (method === "GET" && path === "/api/history") return apiHistory(base);
+  if (method === "GET" && path === "/api/gallery") return apiGallery(base);
+  if (method === "GET" && path === "/api/auth/login-url") return apiLoginUrl(base);
+  if (method === "POST" && path === "/api/auth/exchange") return apiExchange(base);
+  if (method === "POST" && path === "/api/auth/save") return apiSave(base);
+  if (method === "GET" && path === "/api/auth/me") return apiMe(base);
+  if (method === "POST" && path === "/api/auth/accept-terms") return apiAcceptTerms(base);
+
+  let params = match(path, "/api/job/:chatId");
+  if (params && method === "GET") return apiJob({ ...base, params });
+
+  params = match(path, "/api/history/:chatId");
+  if (params && method === "DELETE") return apiDeleteHistory({ ...base, params });
+
+  return new Response(JSON.stringify({ ok: false, error: `API not found: ${method} ${path}` }), {
+    status: 404,
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+  });
 }
 
 export default {
-  async fetch(request, env, c) {
+  async fetch(request, env, executionCtx) {
     const url = new URL(request.url);
+    const path = url.pathname;
 
-    // API first
-    if (url.pathname.startsWith("/api/")) {
+    // Always handle API in worker (never fall through to SPA assets)
+    if (path === "/api" || path.startsWith("/api/")) {
       try {
-        const res = await handleApi(request, env, c);
-        if (res) return res;
-        return new Response(JSON.stringify({ ok: false, error: "Not found" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
+        return await handleApi(request, env, executionCtx);
       } catch (e) {
         return new Response(
-          JSON.stringify({ ok: false, error: e.message || String(e) }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
+          JSON.stringify({ ok: false, error: e.message || String(e), stack: String(e.stack || "") }),
+          { status: 500, headers: { "Content-Type": "application/json; charset=utf-8" } }
         );
       }
     }
 
-    // Static assets (Workers Assets binding)
     if (env.ASSETS) {
-      // SPA-ish: bare / → index.html via assets
       return env.ASSETS.fetch(request);
     }
-
     return new Response("ASSETS binding missing", { status: 500 });
   },
 };
