@@ -1,10 +1,12 @@
 import { json, extractAuth, baseUrl } from "../_shared/http.js";
 import {
   creditsPool,
+  globalSettings,
   balance,
   checkTag,
   history,
 } from "../_shared/client.js";
+import { summarizeGlobalSettings } from "../_shared/models.js";
 
 /**
  * GET /api/status
@@ -23,6 +25,18 @@ export async function onRequestGet(context) {
     result.credits_pool = await creditsPool(env);
   } catch (e) {
     result.credits_pool_error = e.message || String(e);
+  }
+
+  try {
+    const gs = await globalSettings(env);
+    result.global_settings = summarizeGlobalSettings(gs);
+    result.maxCredits =
+      result.global_settings?.artlistPoolMax ??
+      result.credits_pool?.maxCredits ??
+      null;
+  } catch (e) {
+    result.global_settings_error = e.message || String(e);
+    result.maxCredits = result.credits_pool?.maxCredits ?? null;
   }
 
   if (auth.userId && auth.token) {

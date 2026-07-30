@@ -53,6 +53,49 @@ X-User-Token: <dafreeai session token>
 
 List models + aspects + qualities.
 
+Models are filtered by live upstream `GET /api/global-settings` → `modelStatuses`.
+Hidden statuses (`hide`, `hidden`, `disabled`, …) are omitted by default.
+
+Query params:
+
+| Param | Description |
+|-------|-------------|
+| `type` | Optional `image` \| `video` |
+| `include_hidden` | `1` / `true` to include hidden models |
+
+Response extras:
+
+```json
+{
+  "ok": true,
+  "models": [
+    {
+      "id": "nano-banana-2-lite",
+      "name": "Nano Banana 2 Lite",
+      "type": "image",
+      "upstream_status": "show",
+      "ui_hidden": false
+    }
+  ],
+  "aspects": ["1:1", "16:9", "9:16", "4:3", "3:4", "21:9"],
+  "qualities": ["low", "medium", "high"],
+  "include_hidden": false,
+  "maxCredits": 3000000,
+  "hidden_models": ["gpt-image-1.5", "gpt-image-1-mini"],
+  "global_settings": {
+    "artlistPoolMax": 3000000,
+    "videoCooldown": true,
+    "modelStatuses": {"gpt-image-1.5": "hide"},
+    "hidden_models": ["gpt-image-1.5", "gpt-image-1-mini"]
+  }
+}
+```
+
+Related browser endpoints (session headers, not API key):
+
+- `GET /api/meta` — same filtered models + `maxCredits` / `global_settings`
+- `GET /api/status` — credits pool + `global_settings` + `maxCredits`
+
 ### GET /v1/me
 
 Current bound user balance / tag / key meta.

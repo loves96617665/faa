@@ -5,24 +5,17 @@
  * - On MODEL_NOT_ALLOWED / MODEL_LOCKED, auto-retry once with quality=low
  * - Optional fallback to nano-banana-2-lite
  * - Account pool: true parallel via generateWithPool (mode auto|pool|personal)
+ * - Live /api/models overlay for resolution/quality soft-clamp
  */
 
-import { creditsPool, DaFreeAiError } from "./client.js";
-import { validateGenerateParams } from "./models.js";
+import { creditsPool, DaFreeAiError, upstreamModels } from "./client.js";
+import {
+  validateGenerateParams,
+  normalizeModelId,
+  isGptImage,
+  parseUpstreamModelsMap,
+} from "./models.js";
 import { generateWithPool, releasePoolAccount, poolStats } from "./pool.js";
-
-const GPT_IMAGE_IDS = new Set(["gpt-image-2", "gpt-image-1.5", "gpt-image-1-mini"]);
-
-const MODEL_ALIASES = {
-  "gpt-image-2-fast": "gpt-image-2",
-  "gpt-image2": "gpt-image-2",
-  gpt2: "gpt-image-2",
-  "gpt-image": "gpt-image-2",
-};
-
-function isGptImage(modelId) {
-  return GPT_IMAGE_IDS.has(String(modelId || "").toLowerCase());
-}
 
 function isRetryableModelError(msg) {
   const s = String(msg || "");
@@ -32,12 +25,6 @@ function isRetryableModelError(msg) {
     /is locked/i.test(s) ||
     /MODEL_NOT_ALLOWED/i.test(s)
   );
-}
-
-export function normalizeModelId(modelId) {
-  const raw = String(modelId || "nano-banana-2-lite").trim();
-  const key = raw.toLowerCase();
-  return MODEL_ALIASES[key] || raw;
 }
 
 /**
@@ -106,20 +93,30 @@ export async function smartGenerate(
     q = "low";
   }
 
+  // Live catalog overlay (supportedResolutions / qualities / imageReferenceEnabled)
+  let upstreamMap = null;
+  try {
+    const raw = await upstreamModels(env);
+    upstreamMap = parseUpstreamModelsMap(raw || {});
+  } catch {
+    upstreamMap = null;
+  }
+
   const refs = Array.isArray(imagePaths) ? imagePaths : null;
   const mode = String(poolMode || "auto").toLowerCase();
   if (mode !== "personal") {
     adjustments.push(`poolMode:${mode}`);
   }
 
-  function build(modelIdIn, qualityIn) {
+  function build(modelIdIn, qualityIn, imagePathsIn = refs) {
     return validateGenerateParams(modelIdIn, {
       aspect,
       resolution,
       quality: qualityIn,
       duration,
       audio,
-      imagePaths: refs || [],
+      imagePaths: imagePathsIn || [],
+      upstreamModels: upstreamMap,
     });
   }
 
@@ -199,7 +196,8 @@ export async function smartGenerate(
     adjustments.push(`fallback:${modelId}→${fb} after ${String(prevMsg).slice(0, 80)}`);
     modelId = fb;
     q = "low";
-    ({ model, settings } = build(modelId, q));
+    // Fallback drops image refs (lite path is most reliable without refs)
+    ({ model, settings } = build(modelId, q, null));
     poolResult = await tryOnce(modelId, settings);
     fallbackUsed = true;
     fromPool = !!poolResult.fromPool;
@@ -233,4 +231,4 @@ function shouldFallback(fallback, modelId) {
   return isGptImage(modelId);
 }
 
-export { poolStats, releasePoolAccount };
+export { normalizeModelId, isGptImage, poolStats, releasePoolAccount };

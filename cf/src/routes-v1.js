@@ -11,8 +11,6 @@ import {
 import {
   ASPECT_RATIOS,
   QUALITIES,
-  listModels,
-  modelToDict,
 } from "../functions/_shared/models.js";
 import {
   DaFreeAiError,
@@ -21,6 +19,7 @@ import {
   history,
   absoluteMediaUrl,
   findResultInHistory,
+  listAvailableModels,
 } from "../functions/_shared/client.js";
 import { resolveApiKey, hasScope, checkRateLimit } from "../functions/_shared/keys.js";
 import { classifyError, errorBody } from "../functions/_shared/errors.js";
@@ -67,11 +66,48 @@ async function authFromApiKey(context, { scope = null } = {}) {
 export async function v1Models(context) {
   const a = await authFromApiKey(context, { scope: "models" });
   if (a.error) return a.error;
+  const url = new URL(context.request.url);
+  const includeHidden =
+    url.searchParams.get("include_hidden") === "1" ||
+    url.searchParams.get("include_hidden") === "true";
+  const onlyLiveEnabled =
+    url.searchParams.get("only_live_enabled") === "1" ||
+    url.searchParams.get("only_live_enabled") === "true";
+  const type = url.searchParams.get("type") || null;
+
+  let available;
+  try {
+    available = await listAvailableModels(context.env, {
+      type,
+      includeHidden,
+      onlyLiveEnabled,
+    });
+  } catch (e) {
+    available = {
+      models: [],
+      global_settings: null,
+      include_hidden: includeHidden,
+      only_live_enabled: onlyLiveEnabled,
+      live_enabled_models: [],
+      settings_error: e.message || String(e),
+    };
+  }
+
+  const gs = available.global_settings || {};
   return json({
     ok: true,
-    models: listModels().map(modelToDict),
+    models: available.models,
     aspects: ASPECT_RATIOS,
     qualities: QUALITIES,
+    include_hidden: available.include_hidden,
+    only_live_enabled: available.only_live_enabled ?? onlyLiveEnabled,
+    live_enabled_models: available.live_enabled_models || [],
+    models_error: available.models_error || null,
+    upstream_models_count: available.upstream_models_count ?? null,
+    global_settings: gs,
+    maxCredits: gs.artlistPoolMax ?? null,
+    hidden_models: gs.hidden_models || [],
+    settings_error: available.settings_error || null,
   });
 }
 
@@ -220,6 +256,13 @@ export async function v1Job(context) {
 
   const url = new URL(context.request.url);
   const promptSubstr = url.searchParams.get("prompt") || null;
+  const model = url.searchParams.get("model") || null;
+  const sinceRaw = url.searchParams.get("since");
+  let sinceTs = null;
+  if (sinceRaw != null && sinceRaw !== "") {
+    const n = Number(sinceRaw);
+    if (Number.isFinite(n)) sinceTs = n;
+  }
 
   let auth = a.auth;
   let fromPool = false;
@@ -235,11 +278,11 @@ export async function v1Job(context) {
 
   let hist;
   try {
-    hist = await history(context.env, auth, { limit: 20, offset: 0 });
+    hist = await history(context.env, auth, { limit: 30, offset: 0 });
   } catch (e) {
     if (fromPool) {
       try {
-        hist = await history(context.env, a.auth, { limit: 20, offset: 0 });
+        hist = await history(context.env, a.auth, { limit: 30, offset: 0 });
         fromPool = false;
       } catch (e2) {
         const c = classifyError(e2.message || e2, e2.status || 500);
@@ -251,7 +294,8 @@ export async function v1Job(context) {
     }
   }
 
-  const found = findResultInHistory(hist, { chatId, promptSubstr });
+  // user_library fallback: client chatId often never appears as its own chat.
+  const found = findResultInHistory(hist, { chatId, promptSubstr, model, sinceTs });
   if (!found) {
     return json({
       ok: true,

@@ -7,8 +7,11 @@ import {
 } from "../../_shared/client.js";
 
 /**
- * GET /api/job/:chatId?prompt=...
+ * GET /api/job/:chatId?prompt=...&model=...&since=...
  * Poll a single chat job status (non-blocking).
+ *
+ * Upstream often never materializes client chatId; completed images land in
+ * synthetic `user_library`. Pass prompt/model/since for library fallback match.
  */
 export async function onRequestGet(context) {
   const { request, env, params } = context;
@@ -25,10 +28,17 @@ export async function onRequestGet(context) {
 
   const url = new URL(request.url);
   const promptSubstr = url.searchParams.get("prompt") || null;
+  const model = url.searchParams.get("model") || null;
+  const sinceRaw = url.searchParams.get("since");
+  let sinceTs = null;
+  if (sinceRaw != null && sinceRaw !== "") {
+    const n = Number(sinceRaw);
+    if (Number.isFinite(n)) sinceTs = n;
+  }
 
   let hist;
   try {
-    hist = await history(env, auth, { limit: 20, offset: 0 });
+    hist = await history(env, auth, { limit: 30, offset: 0 });
   } catch (e) {
     const status = e instanceof DaFreeAiError ? e.status || 500 : 500;
     return err(e.message || String(e), status);
@@ -37,6 +47,8 @@ export async function onRequestGet(context) {
   const found = findResultInHistory(hist, {
     chatId,
     promptSubstr,
+    model,
+    sinceTs,
   });
 
   if (!found) {
@@ -55,6 +67,7 @@ export async function onRequestGet(context) {
     chatId: found.chatId || chatId,
     msgId: found.msgId,
     message: found.message,
+    matchedVia: found.matchedVia,
     result: found,
     activeGeneration: hist?.activeGeneration,
     activeGenerationsCount: hist?.activeGenerationsCount,

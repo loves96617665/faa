@@ -2,12 +2,14 @@
  * All API route handlers in one module (no [param] filenames for bundler safety).
  */
 import { json, err, readJson, extractAuth, requireAuth, uuid, baseUrl } from "../functions/_shared/http.js";
-import { ASPECT_RATIOS, QUALITIES, listModels, modelToDict } from "../functions/_shared/models.js";
+import { ASPECT_RATIOS, QUALITIES, summarizeGlobalSettings } from "../functions/_shared/models.js";
 import {
   DaFreeAiError,
   getLoginUrl,
   exchangeCode,
   creditsPool,
+  globalSettings,
+  listAvailableModels,
   checkTag,
   balance,
   acceptTerms,
@@ -24,12 +26,49 @@ import { resolveJobAuth, finalizeJobIfNeeded } from "../functions/_shared/pool.j
 export async function apiMeta(context) {
   const { request, env } = context;
   const auth = extractAuth(request);
+  const url = new URL(request.url);
+  const includeHidden =
+    url.searchParams.get("include_hidden") === "1" ||
+    url.searchParams.get("include_hidden") === "true";
+  const onlyLiveEnabled =
+    url.searchParams.get("only_live_enabled") === "1" ||
+    url.searchParams.get("only_live_enabled") === "true";
+  const type = url.searchParams.get("type") || null;
+
+  let available;
+  try {
+    available = await listAvailableModels(env, {
+      type,
+      includeHidden,
+      onlyLiveEnabled,
+    });
+  } catch (e) {
+    available = {
+      models: [],
+      global_settings: null,
+      include_hidden: includeHidden,
+      only_live_enabled: onlyLiveEnabled,
+      live_enabled_models: [],
+      settings_error: e.message || String(e),
+    };
+  }
+
+  const gs = available.global_settings || {};
   return json({
     ok: true,
     base_url: baseUrl(env),
     aspects: ASPECT_RATIOS,
     qualities: QUALITIES,
-    models: listModels().map(modelToDict),
+    models: available.models,
+    include_hidden: available.include_hidden,
+    only_live_enabled: available.only_live_enabled ?? onlyLiveEnabled,
+    live_enabled_models: available.live_enabled_models || [],
+    models_error: available.models_error || null,
+    upstream_models_count: available.upstream_models_count ?? null,
+    global_settings: gs,
+    maxCredits: gs.artlistPoolMax ?? null,
+    hidden_models: gs.hidden_models || [],
+    settings_error: available.settings_error || null,
     auth: {
       userId: auth.userId || null,
       hasToken: !!auth.token,
@@ -56,6 +95,17 @@ export async function apiStatus(context) {
     result.credits_pool = await creditsPool(env);
   } catch (e) {
     result.credits_pool_error = e.message || String(e);
+  }
+  try {
+    const gs = await globalSettings(env);
+    result.global_settings = summarizeGlobalSettings(gs);
+    result.maxCredits =
+      result.global_settings?.artlistPoolMax ??
+      result.credits_pool?.maxCredits ??
+      null;
+  } catch (e) {
+    result.global_settings_error = e.message || String(e);
+    result.maxCredits = result.credits_pool?.maxCredits ?? null;
   }
   if (auth.userId && auth.token) {
     try {
@@ -298,6 +348,13 @@ export async function apiJob(context) {
 
   const url = new URL(request.url);
   const promptSubstr = url.searchParams.get("prompt") || null;
+  const model = url.searchParams.get("model") || null;
+  const sinceRaw = url.searchParams.get("since");
+  let sinceTs = null;
+  if (sinceRaw != null && sinceRaw !== "") {
+    const n = Number(sinceRaw);
+    if (Number.isFinite(n)) sinceTs = n;
+  }
 
   // Prefer pool account auth if this job was submitted via pool
   let auth = personalAuth;
@@ -314,12 +371,12 @@ export async function apiJob(context) {
 
   let hist;
   try {
-    hist = await history(env, auth, { limit: 20, offset: 0 });
+    hist = await history(env, auth, { limit: 30, offset: 0 });
   } catch (e) {
     // if pool auth fails, try personal once
     if (fromPool) {
       try {
-        hist = await history(env, personalAuth, { limit: 20, offset: 0 });
+        hist = await history(env, personalAuth, { limit: 30, offset: 0 });
         fromPool = false;
       } catch (e2) {
         const status = e2 instanceof DaFreeAiError ? e2.status || 500 : 500;
@@ -331,7 +388,8 @@ export async function apiJob(context) {
     }
   }
 
-  const found = findResultInHistory(hist, { chatId, promptSubstr });
+  // user_library fallback needs prompt/model/since — client chatId often never appears.
+  const found = findResultInHistory(hist, { chatId, promptSubstr, model, sinceTs });
   if (!found) {
     return json({
       ok: true,
@@ -356,6 +414,7 @@ export async function apiJob(context) {
     chatId: found.chatId || chatId,
     msgId: found.msgId,
     message: found.message,
+    matchedVia: found.matchedVia,
     result: found,
     fromPool,
     activeGeneration: hist?.activeGeneration,

@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .client import DaFreeAiClient, DaFreeAiError
-from .models import ASPECT_RATIOS, MODELS, QUALITIES, list_models
+from .models import ASPECT_RATIOS, MODELS, QUALITIES, summarize_global_settings
 
 
 def _print_json(data) -> None:
@@ -51,20 +51,35 @@ def cmd_exchange(args: argparse.Namespace) -> int:
 
 
 def cmd_models(args: argparse.Namespace) -> int:
-    items = list_models(args.type)
+    client = _load_client(args)
+    include_hidden = bool(getattr(args, "include_hidden", False))
+    available = client.list_available_models(args.type, include_hidden=include_hidden)
+    models = available.get("models") or []
+    gs = available.get("global_settings") or {}
+
     if args.json:
-        _print_json([m.to_dict() for m in items])
+        _print_json(available)
         return 0
 
-    print(f"{'ID':24} {'TYPE':6} {'RES':18} {'UNL':4} {'TAG':4} NAME")
-    print("-" * 90)
-    for m in items:
+    print(f"{'ID':24} {'TYPE':6} {'RES':18} {'UNL':4} {'TAG':4} {'UI':6} NAME")
+    print("-" * 100)
+    for m in models:
         print(
-            f"{m.id:24} {m.type:6} {','.join(m.supported_resolutions):18} "
-            f"{'Y' if m.unlimited else 'N':4} {'Y' if m.tag_required else 'N':4} {m.name}"
+            f"{m.get('id', ''):24} {m.get('type', ''):6} "
+            f"{','.join(m.get('supported_resolutions') or []):18} "
+            f"{'Y' if m.get('unlimited') else 'N':4} "
+            f"{'Y' if m.get('tag_required') else 'N':4} "
+            f"{'hide' if m.get('ui_hidden') else 'show':6} "
+            f"{m.get('name', '')}"
         )
     print("\nSupported aspects:", ", ".join(ASPECT_RATIOS))
     print("Supported qualities (GPT Image):", ", ".join(QUALITIES))
+    if gs.get("hidden_models"):
+        print("Hidden by upstream:", ", ".join(gs["hidden_models"]))
+    if gs.get("artlistPoolMax") is not None:
+        print("artlistPoolMax / maxCredits:", gs.get("artlistPoolMax"))
+    if available.get("settings_error"):
+        print("global-settings error:", available["settings_error"])
     return 0
 
 
@@ -73,6 +88,22 @@ def cmd_status(args: argparse.Namespace) -> int:
     pool = client.credits_pool()
     print("== credits pool ==")
     _print_json(pool)
+    print("== global settings ==")
+    try:
+        gs = client.global_settings()
+        summary = summarize_global_settings(gs)
+        _print_json(
+            {
+                "artlistPoolMax": summary.get("artlistPoolMax"),
+                "videoCooldown": summary.get("videoCooldown"),
+                "hidden_models": summary.get("hidden_models"),
+                "modelStatuses": summary.get("modelStatuses"),
+                "announcementActive": summary.get("announcementActive"),
+                "announcementText": summary.get("announcementText"),
+            }
+        )
+    except DaFreeAiError as e:
+        print(f"global-settings error: {e}")
     if client.user_id and client.token:
         print("== balance ==")
         try:
@@ -115,10 +146,12 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
     def on_tick(info):
         found = info.get("found") or {}
+        via = found.get("matchedVia") or info.get("matchedVia") or ""
+        via_s = f" via={via}" if via else ""
         print(
             f"[poll] active={info.get('activeGeneration')} "
             f"count={info.get('activeGenerationsCount')} "
-            f"status={found.get('status')}"
+            f"status={found.get('status')}{via_s}"
         )
 
     try:
@@ -208,12 +241,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--out", default="dafreeai_user.json")
     s.set_defaults(func=cmd_exchange)
 
-    s = sub.add_parser("models", help="List supported models/parameters")
+    s = sub.add_parser("models", help="List supported models/parameters (filtered by upstream global-settings)")
     s.add_argument("--type", choices=["image", "video"])
+    s.add_argument("--include-hidden", action="store_true", help="Include models marked hide/disabled upstream")
     s.add_argument("--json", action="store_true")
     s.set_defaults(func=cmd_models)
 
-    s = sub.add_parser("status", help="Show credits pool / balance / tag")
+    s = sub.add_parser("status", help="Show credits pool / global-settings / balance / tag")
     s.set_defaults(func=cmd_status)
 
     s = sub.add_parser("history", help="Show recent generation history")

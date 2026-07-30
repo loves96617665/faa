@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +18,8 @@ from dafreeai.models import (
     ASPECT_RATIOS,
     QUALITIES,
     get_model,
-    list_models,
+    normalize_model_id,
+    summarize_global_settings,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -120,9 +122,20 @@ def serve_output(filename: str):
 
 @app.get("/api/meta")
 def api_meta():
-    models = [m.to_dict() for m in list_models()]
-    auth = {}
     client = load_client()
+    include_hidden = str(request.args.get("include_hidden", "")).lower() in {"1", "true", "yes"}
+    only_live = str(request.args.get("only_live_enabled", "")).lower() in {"1", "true", "yes"}
+    model_type = request.args.get("type") or None
+
+    available = client.list_available_models(
+        model_type,
+        include_hidden=include_hidden,
+        only_live_enabled=only_live,
+    )
+    models = available.get("models") or []
+    gs = available.get("global_settings") or {}
+
+    auth = {}
     if client.user_id:
         auth = {
             "userId": client.user_id,
@@ -142,6 +155,15 @@ def api_meta():
             "aspects": ASPECT_RATIOS,
             "qualities": QUALITIES,
             "models": models,
+            "include_hidden": available.get("include_hidden", include_hidden),
+            "only_live_enabled": available.get("only_live_enabled", only_live),
+            "live_enabled_models": available.get("live_enabled_models") or [],
+            "models_error": available.get("models_error"),
+            "upstream_models_count": available.get("upstream_models_count"),
+            "global_settings": gs,
+            "maxCredits": gs.get("artlistPoolMax"),
+            "hidden_models": gs.get("hidden_models") or [],
+            "settings_error": available.get("settings_error"),
             "auth": auth,
             "output_dir": str(OUTPUT),
             "user_file": str(USER_FILE),
@@ -307,6 +329,16 @@ def api_status():
         result["credits_pool"] = client.credits_pool()
     except Exception as e:
         result["credits_pool_error"] = str(e)
+    try:
+        gs_raw = client.global_settings()
+        result["global_settings"] = summarize_global_settings(gs_raw)
+        result["maxCredits"] = (
+            result["global_settings"].get("artlistPoolMax")
+            or (result.get("credits_pool") or {}).get("maxCredits")
+        )
+    except Exception as e:
+        result["global_settings_error"] = str(e)
+        result["maxCredits"] = (result.get("credits_pool") or {}).get("maxCredits")
     if client.user_id and client.token:
         try:
             result["balance"] = client.balance()
@@ -404,16 +436,35 @@ def api_delete_history(chat_id: str):
 
 @app.get("/api/job/<chat_id>")
 def api_job(chat_id: str):
-    """Poll a single chat job status without blocking the browser."""
+    """Poll a single chat job status without blocking the browser.
+
+    Results often land in synthetic ``user_library`` rather than the client
+    chatId. Pass ``prompt`` / ``model`` / ``since`` so the library fallback can
+    identify the correct bot message.
+    """
     client = client_from_request()
     try:
         client.require_auth()
     except DaFreeAiError as e:
         return err(str(e), 401)
     prompt_substr = request.args.get("prompt") or None
+    model = request.args.get("model") or None
+    since_raw = request.args.get("since")
+    since_ts: float | None = None
+    if since_raw not in (None, ""):
+        try:
+            since_ts = float(since_raw)
+        except (TypeError, ValueError):
+            since_ts = None
     try:
-        hist = client.history(limit=20, offset=0)
-        found = client.find_result_in_history(hist, chat_id=chat_id, prompt_substr=prompt_substr)
+        hist = client.history(limit=30, offset=0)
+        found = client.find_result_in_history(
+            hist,
+            chat_id=chat_id,
+            prompt_substr=prompt_substr,
+            model=model,
+            since_ts=since_ts,
+        )
     except Exception as e:
         return err(str(e), 500)
 
@@ -434,6 +485,7 @@ def api_job(chat_id: str):
         "chatId": found.get("chatId") or chat_id,
         "msgId": found.get("msgId"),
         "message": found.get("message"),
+        "matchedVia": found.get("matchedVia"),
         "result": found,
         "activeGeneration": hist.get("activeGeneration"),
         "activeGenerationsCount": hist.get("activeGenerationsCount"),
@@ -461,7 +513,8 @@ def api_generate():
     if not prompt:
         return err("prompt 不可為空")
 
-    model_id = (body.get("model") or "nano-banana-2-lite").strip()
+    raw_model_id = (body.get("model") or "nano-banana-2-lite").strip()
+    model_id = normalize_model_id(raw_model_id)
     aspect = body.get("aspect") or "1:1"
     resolution = body.get("resolution")
     quality = body.get("quality") or "low"
@@ -473,6 +526,11 @@ def api_generate():
     poll_interval = float(body.get("pollInterval") or 3)
     poll_timeout = float(body.get("pollTimeout") or 180)
     auto_download = bool(body.get("autoDownload", True))
+    force_quality = bool(body.get("forceQuality", False))
+    fallback = body.get("fallback", "auto")
+    smart = body.get("smart", True)
+    if isinstance(smart, str):
+        smart = smart.lower() not in {"0", "false", "no", "off"}
 
     refs = body.get("imagePaths") or body.get("imageRefs") or []
     if isinstance(refs, str):
@@ -488,7 +546,7 @@ def api_generate():
     try:
         submit = client.generate(
             prompt,
-            model=model_id,
+            model=raw_model_id,
             aspect=aspect,
             resolution=resolution,
             quality=quality,
@@ -496,9 +554,22 @@ def api_generate():
             audio=audio,
             image_paths=refs or None,
             chat_id=chat_id,
+            force_quality=force_quality,
+            smart=bool(smart),
+            fallback=fallback,
         )
     except Exception as e:
         return err(f"提交失敗：{e}", 502)
+
+    req_meta = (submit or {}).get("_request") or {}
+    effective_model = req_meta.get("model") or model_id
+    adjustments = req_meta.get("adjustments") or []
+    fallback_used = bool(req_meta.get("fallbackUsed"))
+    try:
+        effective_spec = get_model(effective_model)
+        model_type = effective_spec.type
+    except Exception:
+        model_type = model.type
 
     if not wait:
         return jsonify(
@@ -507,16 +578,25 @@ def api_generate():
                 "status": "submitted",
                 "chatId": chat_id,
                 "submit": submit,
-                "model": model_id,
-                "type": model.type,
+                "model": effective_model,
+                "type": model_type,
                 "prompt": prompt,
+                "adjustments": adjustments,
+                "fallbackUsed": fallback_used,
+                "originalModel": req_meta.get("originalModel") or raw_model_id,
+                "originalQuality": req_meta.get("originalQuality") or quality,
+                "poolCredits": req_meta.get("poolCredits"),
+                "settings": req_meta.get("settings"),
             }
         )
 
     try:
+        # user_library fallback needs prompt/model/since — client chatId often never appears.
         result = client.wait_for_result(
             chat_id=chat_id,
-            prompt_substr=prompt[:40],
+            prompt_substr=prompt[:80],
+            model=effective_model,
+            since_ts=int(time.time() * 1000) - 60_000,
             poll_interval=poll_interval,
             timeout=poll_timeout,
         )
@@ -528,10 +608,16 @@ def api_generate():
         "chatId": chat_id,
         "submit": submit,
         "result": result,
-        "model": model_id,
-        "type": model.type,
+        "model": effective_model,
+        "type": model_type,
         "status": result.get("status"),
         "message": result.get("message"),
+        "adjustments": adjustments,
+        "fallbackUsed": fallback_used,
+        "originalModel": req_meta.get("originalModel") or raw_model_id,
+        "originalQuality": req_meta.get("originalQuality") or quality,
+        "poolCredits": req_meta.get("poolCredits"),
+        "settings": req_meta.get("settings"),
     }
 
     if result.get("status") == "error":
@@ -547,7 +633,7 @@ def api_generate():
         if auto_download:
             try:
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                fname = f"{safe_name(chat_id)}_{safe_name(model_id)}_{ts}{media_ext(media, model_id)}"
+                fname = f"{safe_name(chat_id)}_{safe_name(effective_model)}_{ts}{media_ext(media, effective_model)}"
                 dest = OUTPUT / fname
                 client.download_media(media, dest)
                 out["saved"] = {

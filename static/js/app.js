@@ -37,7 +37,7 @@
   function fillModels() {
     const type = $("gen-type").value;
     const sel = $("gen-model");
-    const list = state.models.filter((m) => m.type === type);
+    const list = state.models.filter((m) => m.type === type && !m.ui_hidden);
     sel.innerHTML = "";
     list.forEach((m) => {
       const opt = document.createElement("option");
@@ -46,6 +46,7 @@
       if (m.unlimited) flags.push("unlimited");
       if (m.tag_required) flags.push("tag");
       if (m.supports_quality) flags.push("quality");
+      if (m.upstream_status && m.upstream_status !== "show") flags.push(m.upstream_status);
       opt.textContent = `${m.id} — ${m.name} [${flags.join(", ")}]`;
       sel.appendChild(opt);
     });
@@ -152,6 +153,9 @@
     state.models = meta.models || [];
     state.aspects = meta.aspects || state.aspects;
     state.qualities = meta.qualities || state.qualities;
+    state.globalSettings = meta.global_settings || null;
+    state.maxCredits = meta.maxCredits ?? meta.global_settings?.artlistPoolMax ?? null;
+    state.hiddenModels = meta.hidden_models || [];
 
     const aspect = $("gen-aspect");
     aspect.innerHTML = "";
@@ -252,17 +256,24 @@
     const started = Date.now();
     const intervalMs = Math.max(1, Number(pollInterval) || 3) * 1000;
     const timeoutMs = Math.max(10, Number(pollTimeout) || 180) * 1000;
+    // Help server match user_library results (client chatId often never appears).
+    const sinceTs = started - 60_000;
     let ticks = 0;
 
     while (Date.now() - started < timeoutMs) {
       ticks += 1;
-      const q = prompt ? `?prompt=${encodeURIComponent(prompt.slice(0, 40))}` : "";
+      const params = new URLSearchParams();
+      if (prompt) params.set("prompt", String(prompt).slice(0, 80));
+      if (model) params.set("model", String(model));
+      params.set("since", String(sinceTs));
+      const q = params.toString() ? `?${params.toString()}` : "";
       const job = await api(`/api/job/${encodeURIComponent(chatId)}${q}`);
       const elapsed = Math.round((Date.now() - started) / 1000);
       const active = job.activeGeneration || job.activeGenerationsCount || "—";
+      const via = job.matchedVia ? ` · via=${job.matchedVia}` : "";
       setStatus(
         $("gen-status"),
-        `輪詢中 #${ticks} · ${elapsed}s · status=${job.status || "?"} · active=${active}`,
+        `輪詢中 #${ticks} · ${elapsed}s · status=${job.status || "?"} · active=${active}${via}`,
         "warn"
       );
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -47,18 +48,36 @@ def _mask_token(token: str | None) -> str:
     return t[:8] + "…" + t[-6:]
 
 
-def _model_choices(media_type: str) -> list[str]:
-    items = list_models(media_type if media_type in {"image", "video"} else None)
+def _model_choices(media_type: str, client: DaFreeAiClient | None = None) -> list[str]:
+    """Build model dropdown labels, filtered by live upstream global-settings when possible."""
+    media = media_type if media_type in {"image", "video"} else None
+    models: list[dict[str, Any]] = []
+    c = client or _load_client_from_disk()
+    try:
+        available = c.list_available_models(media, include_hidden=False)
+        models = available.get("models") or []
+    except Exception:
+        models = []
+
+    if not models:
+        # Fallback to static catalog if upstream global-settings is unreachable.
+        for m in list_models(media):
+            models.append(m.to_dict())
+
     out: list[str] = []
-    for m in items:
-        flags: list[str] = [m.type]
-        if m.unlimited:
+    for m in models:
+        mid = str(m.get("id") or "")
+        name = str(m.get("name") or mid)
+        flags: list[str] = [str(m.get("type") or "")]
+        if m.get("unlimited"):
             flags.append("unlimited")
-        if m.tag_required:
+        if m.get("tag_required"):
             flags.append("tag")
-        if m.supports_quality:
+        if m.get("supports_quality"):
             flags.append("quality")
-        out.append(f"{m.id}  |  {m.name}  [{', '.join(flags)}]")
+        if m.get("ui_hidden"):
+            flags.append("hidden")
+        out.append(f"{mid}  |  {name}  [{', '.join(flags)}]")
     return out
 
 
@@ -534,9 +553,12 @@ def ui_generate(
         progress(frac, desc=f"輪詢 {tick}: {last_status} active={info.get('activeGeneration')}")
 
     try:
+        # Results often only appear under user_library; pass prompt/model/since for fallback match.
         result = client.wait_for_result(
             chat_id=cid,
-            prompt_substr=prompt[:40],
+            prompt_substr=prompt[:80],
+            model=model_id,
+            since_ts=int(time.time() * 1000) - 60_000,
             poll_interval=float(poll_interval or DEFAULT_POLL),
             timeout=float(poll_timeout or DEFAULT_TIMEOUT),
             on_tick=on_tick,
@@ -702,11 +724,33 @@ def ui_delete_history(auth: dict | None, chat_id: str, limit: float, offset: flo
 def ui_status_refresh(auth: dict | None):
     client = _client_from_state(auth)
     blocks: list[str] = []
+    pool: dict[str, Any] | None = None
     try:
         pool = client.credits_pool()
         blocks.append("## Credits Pool\n```json\n" + json.dumps(pool, ensure_ascii=False, indent=2) + "\n```")
     except Exception as e:
         blocks.append(f"## Credits Pool\n錯誤：{e}")
+
+    try:
+        from dafreeai.models import summarize_global_settings
+
+        gs = client.global_settings()
+        summary = summarize_global_settings(gs)
+        slim = {
+            "artlistPoolMax": summary.get("artlistPoolMax"),
+            "maxCredits": summary.get("artlistPoolMax")
+            or (pool.get("maxCredits") if isinstance(pool, dict) else None),
+            "videoCooldown": summary.get("videoCooldown"),
+            "hidden_models": summary.get("hidden_models"),
+            "modelStatuses": summary.get("modelStatuses"),
+            "announcementActive": summary.get("announcementActive"),
+            "announcementText": summary.get("announcementText"),
+        }
+        blocks.append(
+            "## Global Settings\n```json\n" + json.dumps(slim, ensure_ascii=False, indent=2) + "\n```"
+        )
+    except Exception as e:
+        blocks.append(f"## Global Settings\n錯誤：{e}")
 
     if client.user_id and client.token:
         try:
@@ -730,7 +774,7 @@ def ui_status_refresh(auth: dict | None):
         except Exception as e:
             blocks.append(f"## Active Generation\n錯誤：{e}")
     else:
-        blocks.append("## Account\n未登入（僅顯示公開 credits pool）")
+        blocks.append("## Account\n未登入（僅顯示公開 credits pool / global-settings）")
 
     blocks.append(
         f"## Paths\n- output: `{OUTPUT_DIR}`\n- user file: `{USER_FILE}`\n- base: `{client.base_url}`"
