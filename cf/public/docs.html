@@ -26,7 +26,7 @@
     <h1>v1 API Docs <span class="tag">EN</span><span class="tag">中文</span></h1>
     <p class="en">Public API for DaFreeAi Studio on Cloudflare Workers. Create an API key in the UI, then call <code>/v1/*</code> with Bearer auth.</p>
     <p class="zh">Cloudflare Worker 上的公開 API。在 UI 建立 API Key 後，以 Bearer 呼叫 <code>/v1/*</code>。</p>
-    <p>Base: <code>https://faa.kinai.workers.dev</code> · Build: <code>2026-07-24-v6-account-pool</code></p>
+    <p>Base: <code>https://faa.kinai.workers.dev</code> · Build: <code>2026-07-30-v7-openai-images</code></p>
 
     <h2>1. Create API Key / 建立 API Key</h2>
     <ol>
@@ -47,10 +47,14 @@
     <h2>3. Endpoints / 端點</h2>
     <ul>
       <li><code>GET /v1/models</code> — model list / 模型列表</li>
+      <li><code>GET /v1/models?format=openai</code> — OpenAI list schema · OpenAI 模型列表格式</li>
       <li><code>GET /v1/me</code> — account / balance / key info · 帳號 / 餘額 / key 資訊</li>
       <li><code>POST /v1/generate</code> — submit generation (async) · 提交生成（非阻塞）</li>
       <li><code>GET /v1/jobs/:jobId</code> — poll result · 輪詢結果</li>
       <li><code>GET /v1/history</code> — history · 歷史</li>
+      <li><code>POST /v1/images/generations</code> — <strong>OpenAI Images compatible</strong> · OpenAI 圖片格式（同步回 <code>data[].url</code>）</li>
+      <li><code>POST /openai/v1/images/generations</code> — same · 同上</li>
+      <li><code>GET /openai/v1/models</code> — OpenAI models list · OpenAI 模型列表</li>
     </ul>
     <p class="en">Pool management (session auth): <code>GET/POST /api/pool</code>, <code>PATCH/DELETE /api/pool/:id</code>, <code>POST /api/pool/:id/release</code>, <code>GET /api/pool/stats</code></p>
     <p class="zh">帳號池管理（session 認證）：同上路徑。</p>
@@ -119,6 +123,28 @@ curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/jobs/<chatId>"</pre>
     <h2>9. Polling / 輪詢</h2>
     <p class="en">Generate returns <code>202</code> with <code>jobId</code>/<code>chatId</code> and <code>poll.url</code>. Poll every ~3s until <code>status</code> is <code>completed</code> or <code>error</code>. Pool jobs resolve auth via internal jobmap so clients keep using the same API key.</p>
     <p class="zh">生成回 <code>202</code> 與 <code>jobId</code>/<code>chatId</code>、<code>poll.url</code>。約每 3 秒輪詢直到 <code>completed</code> 或 <code>error</code>。池任務透過 jobmap 解析憑證，客戶端仍用同一 API Key 輪詢即可。</p>
+
+    <h2>10. OpenAI Images format / OpenAI 圖片格式</h2>
+    <p class="en">Use <code>POST /v1/images/generations</code> with the standard OpenAI Images body. Default is <strong>synchronous</strong>: the Worker submits + polls until media is ready, then returns:</p>
+    <p class="zh">使用 <code>POST /v1/images/generations</code>，請求體與 OpenAI Images 相同。預設<strong>同步</strong>：Worker 提交並輪詢直到完成，回傳：</p>
+    <pre class="code-box">{
+  "created": 1753900000,
+  "data": [{ "url": "https://www.dafreeai.site/api/images/..." }]
+}</pre>
+    <pre class="code-box">curl -s -X POST "https://faa.kinai.workers.dev/v1/images/generations" \
+  -H "Authorization: Bearer faa_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt":"a cute cat",
+    "model":"nano-banana-2-lite",
+    "size":"1024x1024",
+    "response_format":"url",
+    "timeout": 90
+  }'</pre>
+    <p class="en">Aliases: <code>dall-e-3</code> → <code>gpt-image-2</code>, <code>dall-e-2</code> → <code>nano-banana-2-lite</code>. <code>response_format=b64_json</code> supported. Set <code>"async":true</code> for non-blocking 202.</p>
+    <p class="zh">別名：<code>dall-e-3</code>→<code>gpt-image-2</code>，<code>dall-e-2</code>→lite。支援 <code>b64_json</code>。設 <code>"async":true</code> 可非阻塞回 202。</p>
+    <p class="en">OpenAI SDK: <code>baseURL: "https://faa.kinai.workers.dev/v1"</code> + <code>apiKey: "faa_sk_..."</code> then <code>client.images.generate(...)</code>.</p>
+    <p class="zh">官方 SDK：<code>baseURL</code> 指到 <code>.../v1</code>，<code>apiKey</code> 用 <code>faa_sk_...</code>，再呼叫 <code>images.generate</code>。</p>
 
     <p>Markdown source: GitHub <code>docs/v1-api.md</code> · Live: <a href="https://faa.kinai.workers.dev">faa.kinai.workers.dev</a></p>
   </div>

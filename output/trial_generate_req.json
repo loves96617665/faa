@@ -1,0 +1,17 @@
+﻿{
+    "imagePaths":  [
+
+                   ],
+    "model":  "nano-banana-2-lite",
+    "userId":  "1266288955662405634",
+    "prompt":  "a cute orange cat sitting on a windowsill, soft daylight, simple illustration, trial 051008",
+    "token":  "20fef236f5671749623e32a99c54e28a0de64dfa98cf9aeccbc8b51349c86975",
+    "chatId":  "83d6e9b2-342f-4ef6-97f2-7ec924084d66",
+    "imagePath":  null,
+    "settings":  {
+                     "ratio":  "1:1",
+                     "aspectRatio":  "1:1",
+                     "aspect_ratio":  "1:1",
+                     "resolution":  "1K"
+                 }
+}

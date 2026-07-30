@@ -1,7 +1,7 @@
 # DaFreeAi Studio v1 API
 
-Base URL: `https://faa.kinai.workers.dev`  
-Build: `2026-07-24-v6-account-pool`
+Base URL: `https://faa.kinai.workers.dev`
+Build: `2026-07-30-v7-openai-images`
 
 ## Overview / 簡介
 
@@ -229,6 +229,132 @@ Use **`nano-banana-2-lite`** for reliable unlimited generation.
 
 ---
 
+## OpenAI-compatible Images API
+
+FAA implements an **OpenAI Images-compatible** surface so clients can use the familiar request/response shape.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/v1/images/generations` | OpenAI Images body → sync poll → `{ created, data:[{url\|b64_json}] }` |
+| POST | `/openai/v1/images/generations` | Same handler (explicit prefix) |
+| GET | `/openai/v1/models` | OpenAI `{ object:"list", data:[{id,object,owned_by}] }` |
+| GET | `/v1/models?format=openai` | Same OpenAI list schema |
+| GET | `/openai/v1/models/:id` | Model retrieve stub |
+
+Auth is still FAA API Key:
+
+```http
+Authorization: Bearer faa_sk_...
+```
+
+### Request (OpenAI + FAA extensions)
+
+```json
+{
+  "prompt": "a cute orange cat, soft daylight",
+  "model": "nano-banana-2-lite",
+  "n": 1,
+  "size": "1024x1024",
+  "quality": "standard",
+  "response_format": "url",
+  "aspect": "1:1",
+  "resolution": "1K",
+  "poolMode": "auto",
+  "fallback": "auto",
+  "timeout": 90,
+  "async": false
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `prompt` | Required |
+| `model` | FAA id, or aliases: `dall-e-3`→`gpt-image-2`, `dall-e-2`→`nano-banana-2-lite` |
+| `n` | Only `1` supported |
+| `size` | `1024x1024` / `1792x1024` / `1024x1792` … mapped to aspect+resolution |
+| `quality` | `standard`→`low`, `hd`→`high`, or raw `low`/`medium`/`high` |
+| `response_format` | `url` (default) or `b64_json` |
+| `timeout` | Sync poll seconds (default 90, max 150) |
+| `async` | If true, return `202` with empty `data` + `faa.poll` (non-blocking) |
+| `aspect` / `resolution` / `poolMode` / `fallback` | FAA extensions (optional) |
+
+### Success response (OpenAI shape)
+
+```json
+{
+  "created": 1753900000,
+  "data": [
+    {
+      "url": "https://www.dafreeai.site/api/images/.../xxx.jpg",
+      "revised_prompt": null
+    }
+  ],
+  "id": "<jobId>",
+  "model": "nano-banana-2-lite",
+  "faa": {
+    "jobId": "...",
+    "mediaUrl": "...",
+    "matchedVia": "library_fallback",
+    "adjustments": []
+  }
+}
+```
+
+`b64_json` mode:
+
+```json
+{
+  "created": 1753900000,
+  "data": [{ "b64_json": "<base64...>", "revised_prompt": null }]
+}
+```
+
+### Error response (OpenAI shape)
+
+```json
+{
+  "error": {
+    "message": "...",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "VALIDATION_ERROR"
+  },
+  "faa": { "code": "VALIDATION_ERROR", "hint": "..." }
+}
+```
+
+### size → aspect / resolution
+
+| OpenAI `size` | aspect | resolution |
+|---------------|--------|------------|
+| `1024x1024` | `1:1` | `1K` |
+| `1792x1024` | `16:9` | `1K` |
+| `1024x1792` | `9:16` | `1K` |
+| `1536x1024` | `4:3` | `1K` |
+| `1024x1536` | `3:4` | `1K` |
+
+### Official OpenAI SDK tip
+
+```js
+import OpenAI from "openai";
+const client = new OpenAI({
+  apiKey: "faa_sk_...",
+  baseURL: "https://faa.kinai.workers.dev/v1",
+});
+// calls POST {baseURL}/images/generations → /v1/images/generations
+const img = await client.images.generate({
+  model: "nano-banana-2-lite",
+  prompt: "a cute cat",
+  size: "1024x1024",
+  response_format: "url",
+});
+console.log(img.data[0].url);
+```
+
+> Sync path waits up to `timeout` seconds inside the Worker (CF limit ~30s on free / higher on paid). If you hit Worker wall-clock limits, use `"async": true` then poll `GET /v1/jobs/:id`, or keep using native `/v1/generate`.
+
+---
+
 ## curl example
 
 ```bash
@@ -247,4 +373,19 @@ CHAT=$(echo "$JOB" | jq -r .chatId)
 curl -s -H "Authorization: Bearer $FAA_KEY" "$BASE/v1/jobs/$CHAT" | jq
 ```
 
-See also: `docs/examples/curl.sh`, `docs/examples/generate.mjs`, live page `/docs.html`.
+### OpenAI Images curl
+
+```bash
+curl -s -X POST "$BASE/v1/images/generations" \
+  -H "Authorization: Bearer $FAA_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt":"a cute orange cat, soft daylight",
+    "model":"nano-banana-2-lite",
+    "size":"1024x1024",
+    "response_format":"url",
+    "timeout": 90
+  }' | jq
+```
+
+See also: `docs/examples/curl.sh`, `docs/examples/generate.mjs`, `docs/examples/openai-images.mjs`, live page `/docs.html`.

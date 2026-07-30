@@ -1,0 +1,50 @@
+﻿{
+    "submit":  {
+                   "ok":  true,
+                   "message":  "Generation started in background",
+                   "bananas":  {
+                                   "balance":  100,
+                                   "resetAt":  1785456000000,
+                                   "history":  [
+                                                   {
+                                                       "amount":  10,
+                                                       "reason":  "Daily Reward",
+                                                       "timestamp":  1785393348670
+                                                   },
+                                                   {
+                                                       "amount":  10,
+                                                       "reason":  "Daily Reward",
+                                                       "timestamp":  1785309548562
+                                                   },
+                                                   {
+                                                       "amount":  10,
+                                                       "reason":  "Daily Reward",
+                                                       "timestamp":  1785229419603
+                                                   },
+                                                   {
+                                                       "amount":  10,
+                                                       "reason":  "Daily Reward",
+                                                       "timestamp":  1785141166129
+                                                   },
+                                                   {
+                                                       "amount":  10,
+                                                       "reason":  "Daily Reward",
+                                                       "timestamp":  1785045189029
+                                                   },
+                                                   {
+                                                       "amount":  50,
+                                                       "reason":  "Account Recovery (+50 bananas restored)",
+                                                       "timestamp":  1784996535909
+                                                   }
+                                               ],
+                                   "redeemedCodes":  [
+
+                                                     ],
+                                   "v2ResetDone":  true,
+                                   "dailyAllowance":  10
+                               },
+                   "bananaCost":  0
+               },
+    "chatId":  "83d6e9b2-342f-4ef6-97f2-7ec924084d66",
+    "prompt":  "a cute orange cat sitting on a windowsill, soft daylight, simple illustration, trial 051008"
+}

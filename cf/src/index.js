@@ -1,6 +1,6 @@
 /**
- * Cloudflare Worker entry — static assets + /api/* + /v1/* handlers.
- * build: 2026-07-24-v6.1-kv-quota
+ * Cloudflare Worker entry — static assets + /api/* + /v1/* + OpenAI-compat handlers.
+ * build: 2026-07-30-v7-openai-images
  */
 import {
   apiMeta,
@@ -26,8 +26,13 @@ import {
   apiPoolRelease,
 } from "./routes-pool.js";
 import { v1Models, v1Me, v1Generate, v1Job, v1History } from "./routes-v1.js";
+import {
+  openaiImagesGenerations,
+  openaiModels,
+  openaiModelRetrieve,
+} from "./routes-openai.js";
 
-const BUILD = "2026-07-24-v6.1-kv-quota";
+const BUILD = "2026-07-30-v7-openai-images";
 
 function ctx(request, env, executionCtx, params = {}) {
   return {
@@ -70,7 +75,10 @@ async function handleApi(request, env, executionCtx) {
   const method = request.method.toUpperCase();
   const base = ctx(request, env, executionCtx);
 
-  if (method === "OPTIONS" && (path.startsWith("/api") || path.startsWith("/v1"))) {
+  if (
+    method === "OPTIONS" &&
+    (path.startsWith("/api") || path.startsWith("/v1") || path.startsWith("/openai"))
+  ) {
     return corsPreflight();
   }
 
@@ -109,7 +117,16 @@ async function handleApi(request, env, executionCtx) {
   if (params && method === "DELETE") return apiDeleteHistory({ ...base, params });
 
   // --- Public v1 API (API Key) ---
-  if (method === "GET" && path === "/v1/models") return v1Models(base);
+  if (method === "GET" && path === "/v1/models") {
+    // ?format=openai → OpenAI list schema
+    if (
+      url.searchParams.get("format") === "openai" ||
+      url.searchParams.get("openai") === "1"
+    ) {
+      return openaiModels(base);
+    }
+    return v1Models(base);
+  }
   if (method === "GET" && path === "/v1/me") return v1Me(base);
   if (method === "POST" && path === "/v1/generate") return v1Generate(base);
   if (method === "GET" && path === "/v1/history") return v1History(base);
@@ -117,6 +134,40 @@ async function handleApi(request, env, executionCtx) {
   if (params && method === "GET") return v1Job({ ...base, params });
   params = match(path, "/v1/job/:id");
   if (params && method === "GET") return v1Job({ ...base, params });
+
+  // --- OpenAI-compatible Images API ---
+  // POST /v1/images/generations  (same path OpenAI SDK uses under base_url)
+  if (method === "POST" && path === "/v1/images/generations") {
+    return openaiImagesGenerations(base);
+  }
+  if (method === "POST" && path === "/openai/v1/images/generations") {
+    return openaiImagesGenerations(base);
+  }
+  if (method === "GET" && path === "/openai/v1/models") {
+    return openaiModels(base);
+  }
+  params = match(path, "/openai/v1/models/:id");
+  if (params && method === "GET") return openaiModelRetrieve({ ...base, params });
+  // Also accept /v1/images (discoverability)
+  if (method === "GET" && (path === "/v1/images" || path === "/openai/v1/images")) {
+    return new Response(
+      JSON.stringify({
+        object: "list",
+        data: [],
+        faa: {
+          hint: "POST /v1/images/generations with OpenAI Images body",
+          docs: "/docs.html",
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Access-Control-Allow-Origin": "*",
+        },
+      }
+    );
+  }
 
   return new Response(JSON.stringify({ ok: false, error: `API not found: ${method} ${path}` }), {
     status: 404,
@@ -138,7 +189,13 @@ export default {
           ok: true,
           build: BUILD,
           runtime: "cloudflare-worker",
-          features: ["api-keys", "v1", "gpt2-smart", "account-pool"],
+          features: [
+            "api-keys",
+            "v1",
+            "gpt2-smart",
+            "account-pool",
+            "openai-images",
+          ],
         }),
         {
           status: 200,
@@ -150,7 +207,14 @@ export default {
       );
     }
 
-    if (path === "/api" || path.startsWith("/api/") || path === "/v1" || path.startsWith("/v1/")) {
+    if (
+      path === "/api" ||
+      path.startsWith("/api/") ||
+      path === "/v1" ||
+      path.startsWith("/v1/") ||
+      path === "/openai" ||
+      path.startsWith("/openai/")
+    ) {
       try {
         return await handleApi(request, env, executionCtx);
       } catch (e) {
