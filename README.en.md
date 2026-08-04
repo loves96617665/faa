@@ -8,7 +8,7 @@ Professional reverse-engineered client and Cloudflare-hosted studio for [dafreea
 |---|---|
 | **v1 API reference** | [docs/v1-api.md](./docs/v1-api.md) |
 | **GitHub** | https://github.com/loves96617665/faa |
-| **Build** | `2026-07-24-v6-account-pool` |
+| **Build** | `2026-08-05-v8-recon-fixes` |
 
 ---
 
@@ -92,6 +92,7 @@ copy(localStorage.getItem('dafreeai_user'))
 
 **gpt-image-2 tips:**
 
+- Resolution is now **respected as requested** (`1K` default, `1K/2K/4K`). The old “forced 4K” hack was removed — live testing showed 4K submits could silently never land while 1K succeeds.
 - Prefer `quality=low` (medium often works; high often locks when upstream pool credits = 0)
 - Smart generate may lower quality and fall back to `nano-banana-2-lite` on hard errors
 - Alias `gpt-image-2-fast` is a cost key only; generate model id is still `gpt-image-2`
@@ -260,7 +261,7 @@ Some models require Discord tag or non-zero upstream credits pool.
 |------|------|----------------|
 | UNAUTHORIZED | 401 | Missing/bad session or API key |
 | RATE_LIMITED | 429 | 30/min overall, 6/min generate |
-| UPSTREAM_BUSY | 409 | Same account already generating |
+| UPSTREAM_BUSY | 409 | Same account already generating — **clients now auto-wait & retry** (6s interval, 60s budget) |
 | POOL_BUSY | 503 | No free pool account — add accounts or wait |
 | MODEL_LOCKED | 503 | Upstream locked; try low quality or lite |
 | MODEL_NOT_ALLOWED | 403 | Unlimited package restriction |
@@ -291,22 +292,23 @@ dafreeai-studio/
 ├── README.md              # Chinese project README
 ├── README.en.md           # This file (English UI / product guide)
 ├── docs/
-│   └── v1-api.md          # Public v1 API (EN primary)
+│   ├── v1-api.md          # Public v1 API (EN primary)
+│   └── upstream-generate.md  # Reverse-engineering notes (generate)
 ├── cf/                    # Cloudflare Worker + Studio UI
 │   ├── public/            # index.html, docs.html, css/, js/
 │   ├── src/               # Worker routes
 │   └── functions/_shared/ # client, pool, smart generate, keys
 ├── dafreeai/              # Python client + CLI
 ├── static/                # Legacy Flask UI (not for CF deploy)
-├── app.py / ui_app.py     # Local servers
-└── plans/                 # Design notes
+├── app.py / ui_app.py     # Local servers (Flask / Gradio)
+└── API.md                 # Upstream reverse API reference
 ```
 
 ---
 
 ## Security notes
 
-1. Treat `token` and `faa_sk_...` as account credentials — never commit them
+1. Treat `token` and `faa_sk_...` as account credentials — never commit them (`config.json` / `dafreeai_user.json` are gitignored)
 2. Phase 1 UI tokens live in browser storage; anyone with that browser can use them
 3. API Key plaintext is shown only once; revoke compromised keys in the **API** tab
 4. Pool credentials are stored encrypted in Workers KV — limit who can open the Pool tab (session auth)
@@ -319,6 +321,8 @@ dafreeai-studio/
 
 | Version | Highlights |
 |---------|------------|
+| **v8** | 2026-08-05 recon fixes: gpt-image-2 resolution respected (1K default, no forced 4K), busy-wait auto retry, HTTP 200 error guard, `activeGenerationsCount` fallback, Gradio 5/6 compat |
+| **v7** | OpenAI Images compat (`/v1/images/generations`) |
 | **v6** | Service account pool, `poolMode`, jobmap poll auth, Pool UI |
 | **v5** | Smart generate for gpt-image-2 (quality + fallback) |
 | **v4** | API Keys + public `/v1/*` + docs |

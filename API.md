@@ -1,8 +1,8 @@
 # DaFreeAi Reverse API Reference
 
 Source: frontend reverse + live probe of `https://www.dafreeai.site` (Express + nginx)  
-Full re-probe (2026-07-30): [`docs/upstream-api-reprobe-2026-07-30.md`](docs/upstream-api-reprobe-2026-07-30.md)  
-Deep dive on generate: [`docs/upstream-generate.md`](docs/upstream-generate.md)
+Deep dive on generate: [`docs/upstream-generate.md`](docs/upstream-generate.md)  
+Latest re-recon (2026-08-05, applied to code): see [`docs/upstream-generate.md`](docs/upstream-generate.md) §13
 
 ## Auth model
 
@@ -159,7 +159,7 @@ FAA wrappers:
 
 Catalog lists **38** ids total (seedream, seedance, sora, veo, flux, imagen, …) but the rest are dual-disabled. Prefer this endpoint over static lists when deciding if generate will be accepted.
 
-Raw dump: [`output/upstream_models_live.json`](output/upstream_models_live.json)
+> Raw live dumps (`output/upstream_*.json`) are local-only and gitignored — re-probe with `python main.py models --json` when needed.
 
 ### GET /api/user/check-tag/:userId
 
@@ -171,7 +171,7 @@ Public enough to call with any id (including `0`). Used to set `hasDdfaiTag` aft
 
 ### GET /api/credit-prices
 
-Referenced by official UI to override the inline credit cost table. **Live 2026-07-30: HTTP 404** — UI falls back to hardcoded `CREDIT_PRICES_MAP` (see re-probe doc).
+Referenced by official UI to override the inline credit cost table. **Live 2026-07-30: HTTP 404** — UI falls back to hardcoded `CREDIT_PRICES_MAP`.
 
 ### GET /api/user/credits?userId=&targetUserId=
 
@@ -331,7 +331,7 @@ Poll:
 curl -s "https://www.dafreeai.site/api/history/YOUR_ID?token=YOUR_TOKEN&limit=20&offset=0"
 ```
 
-Live probe script: [`probe_generate.py`](probe_generate.py) · detail: [`docs/upstream-generate.md`](docs/upstream-generate.md)
+Live probe: `python main.py generate ... --no-wait` (see [README.md](./README.md)) · detail: [`docs/upstream-generate.md`](docs/upstream-generate.md)
 
 ### GET /api/history/:userId?token=&limit=&offset=
 
@@ -363,13 +363,14 @@ Useful fields:
   ],
   "hasMore": true,
   "activeGeneration": {"chatId":"...","model":"...","timestamp":0},
-  "activeGenerationsCount": 1,
   "hasCreditAccounts": true,
   "cooldownUntil": 0
 }
 ```
 
 Poll tip: when `chatId` is known, match chat by `id` first; do **not** require full prompt substring on bot messages (they often omit/truncate prompt).
+
+> **Recon 2026-08-05:** `activeGenerationsCount` is **absent** from the live payload (top-level keys are `history` / `hasMore` / `activeGeneration` / `cooldownUntil` / `hasCreditAccounts`). The FAA client derives it (`1` if `activeGeneration` is set, else `0`).
 
 Official UI: poll interval ≈ **1200ms**; parallel active cap UI = **1**; library scroll uses `limit=50`.
 

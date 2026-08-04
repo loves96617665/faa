@@ -220,25 +220,25 @@ Do **not** require prompt substring match when `chatId` is known.
 | [`dafreeai/models.py`](../dafreeai/models.py) `build_settings` | settings matrix |
 | [`dafreeai/client.py`](../dafreeai/client.py) `wait_for_result` | history poll (chatId-first after 2026-07 fix) |
 | [`cf/functions/_shared/client.js`](../cf/functions/_shared/client.js) `generate` | CF POST mirror |
-| [`cf/functions/_shared/generate-smart.js`](../cf/functions/_shared/generate-smart.js) | quality retry + fallback + pool |
-| [`probe_generate.py`](../probe_generate.py) | live negative + live submit probe |
+| [`cf/functions/_shared/generate-smart.js`](../cf/functions/_shared/generate-smart.js) | quality retry + fallback + pool + busy-wait |
+| [`cf/functions/_shared/pool.js`](../cf/functions/_shared/pool.js) | account pool acquire/release |
 
 ## 11. Probe commands
 
 ```powershell
-cd C:\Users\User\Desktop\faa_analysis
+cd <repo root>
 
 # Full probe: public + auth + negative errors + one live generate
-python .\probe_generate.py --model nano-banana-2-lite --poll-timeout 180
+python main.py generate "a cute orange cat" --model nano-banana-2-lite --aspect 1:1 --resolution 1K --verbose
 
 # GPT Image 2 submit+poll
-python .\probe_generate.py --model gpt-image-2 --quality low --resolution 1K --poll-timeout 300
+python main.py generate "cyberpunk city" --model gpt-image-2 --quality low --resolution 1K
 
 # Submit only (no poll)
-python .\probe_generate.py --model gpt-image-2 --quality low --no-wait
+python main.py generate "test" --model nano-banana-2-lite --no-wait
 
-# Inspect a chatId
-python .\check_history.py <chatId>
+# Inspect raw history (uses the token saved in dafreeai_user.json)
+python main.py history --limit 5
 ```
 
 ## 12. Conclusions
@@ -246,5 +246,17 @@ python .\check_history.py <chatId>
 1. `/api/generate` contract is stable: **async accept + banana snapshot**.
 2. Result delivery is **only** via history/media URLs keyed by client `chatId`.
 3. Live submit works with current credentials (`ok`, `bananaCost: 0` on lite).
-4. Prior “generation timeout” was largely a **client poll matching** issue (prompt filter), compounded by slow/flaky history and possible upstream drop — Python poll path has been hardened; CF `findResultInHistory` still uses older promptSubstr logic and should be aligned.
-5. For GPT Image 2 tests, use `quality=low`, long poll, and `probe_generate.py` to capture raw bot message keys if status stays empty.
+4. Prior “generation timeout” was largely a **client poll matching** issue (prompt filter), compounded by slow/flaky history and possible upstream drop — Python poll path has been hardened; CF `findResultInHistory` is now aligned (chatId-first).
+5. For GPT Image 2 tests, use `quality=low` and a long poll; keep `--no-wait` handy to capture the raw submit response.
+
+## 13. Re-recon 2026-08-05 (applied to code)
+
+Live probes on 2026-08-05 (using a valid token) confirmed the contract and uncovered three fixes:
+
+| Item | Observed | Code change |
+|------|----------|-------------|
+| gpt-image-2 resolution | `/api/models` reports `customDimensions: true`, `supportedResolutions: ["1K","2K","4K"]`; **live submit at 1K succeeds, at 4K the result never lands** (silent drop) | Removed the old “FORCED 4K” hack; default resolution is now `1K` (both `dafreeai/models.py` and `cf/functions/_shared/models.js`) |
+| Parallel cap | Whole account allows **one** active generation; a second submit returns “Generation in progress” | Both clients now **busy-wait** (6s interval, 60s budget) and resubmit instead of failing; HTTP-200-but-`{ok:false}` bodies are guarded inside the submit layer |
+| `activeGenerationsCount` | **Not present** in live history payload | `DaFreeAiClient.history()` derives `1`/`0` from `activeGeneration`; UI consumers (`/api/status`, `/api/job`, Gradio) read the derived value |
+
+Also fixed in this pass: Gradio 5/6 compatibility (`theme`/`css` routed per major version) and `pool.js` no longer counts busy-release as an account error.

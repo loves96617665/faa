@@ -11,13 +11,14 @@
 | **GitHub** | https://github.com/loves96617665/faa |
 
 功能：
-- **Gradio Web UI**（登入 / 生成 / 歷史 / 狀態）
+- **Gradio Web UI**（`ui_app.py`）與 **Flask UI**（`app.py`）雙介面
 - Discord OAuth 登入 / code 換 token
 - 列出模型與支援參數
-- 圖片 / 影片生成
+- 圖片 / 影片生成（含 GPT Image 智慧重試）
 - 歷史輪詢與自動下載結果
 - 點數池 / 餘額 / Discord tag 查詢
 - CLI 命令列工具
+- **Cloudflare 版**（`cf/`）：API Key、`/v1/*` 公開 API、服務帳號池
 
 ---
 
@@ -27,20 +28,24 @@
 dafreeai-studio/
 ├── main.py                 # CLI 入口
 ├── ui_app.py               # Gradio Web UI 入口
+├── app.py                  # Flask Web UI 入口
 ├── start_ui.bat            # 一鍵啟動 UI
 ├── start.bat               # CLI 快捷
 ├── requirements.txt
-├── config.example.json
-├── config.json             # 你的設定（可自行建立）
-├── dafreeai_user.json      # 登入後的 userId/token
-├── output/                 # 生成結果輸出
+├── config.example.json     # 設定範本（複製為 config.json 使用）
+├── config.json             # 你的設定（本機建立，勿提交）
+├── dafreeai_user.json      # 登入後的 userId/token（本機建立，勿提交）
+├── output/                 # 生成結果輸出（gitignored）
 ├── examples/
 │   └── generate_example.py
-└── dafreeai/
-    ├── __init__.py
-    ├── models.py           # 模型與參數定義
-    ├── client.py           # API client
-    └── cli.py              # 命令列
+├── dafreeai/
+│   ├── __init__.py
+│   ├── models.py           # 模型與參數定義
+│   ├── client.py           # API client
+│   └── cli.py              # 命令列
+├── cf/                     # Cloudflare Worker + Studio UI（雲端版）
+├── docs/                   # API 文件 / 逆向筆記
+└── static/                 # Flask UI 前端
 ```
 
 ---
@@ -48,7 +53,7 @@ dafreeai-studio/
 ## 安裝
 
 ```bat
-cd /d "I:\新增資料夾 (2)\dafreeai-studio"
+cd /d "<專案路徑>"
 pip install -r requirements.txt
 ```
 
@@ -59,7 +64,7 @@ pip install -r requirements.txt
 ### 一鍵啟動
 
 ```bat
-cd /d "I:\新增資料夾 (2)\dafreeai-studio"
+cd /d "<專案路徑>"
 start_ui.bat
 ```
 
@@ -70,6 +75,15 @@ python ui_app.py
 ```
 
 瀏覽器開啟：`http://127.0.0.1:7860`
+
+### Flask UI（替代介面）
+
+```bat
+python app.py
+```
+
+瀏覽器開啟：`http://127.0.0.1:7860`（與 Gradio 版同端口，二選一執行）  
+功能與 Gradio 版一致（登入 / 生成 / 歷史 / 狀態），介面較簡潔。
 
 ### UI 分頁
 
@@ -291,12 +305,24 @@ if result.get("status") == "completed":
 
 ## 注意
 
-1. token 等同帳號憑證，勿外流
+1. token 等同帳號憑證，勿外流（`config.json` / `dafreeai_user.json` 已 gitignore，請勿強制提交）
 2. OAuth `code` 只能用一次，且很快過期
-3. 前端限制同時 1 個 active generation
+3. 同一帳號同時只能有 **1 個 active generation**；再提交會回「Generation in progress」，客戶端已自動等待重試（6s × 最多 60s）
 4. 點數池 `totalCredits=0` 時，部分非 unlimited 模型可能被鎖
 5. UI 僅綁定 `127.0.0.1`，token 不應暴露到公網
 6. 本工具僅供學習 / 個人自動化，請遵守網站條款
+
+---
+
+## 修復紀錄（2026-08-05）
+
+逆向重探後修正：
+
+- **gpt-image-2 解析度**：上游現支援 `1K/2K/4K`（`customDimensions: true`），實測 `1K` 成功、`4K` 提交後結果不落地。已移除舊的「強制 4K」邏輯，預設改為 `1K`（Python 與 CF 版同步）
+- **busy 自動等待**：遇到「Generation in progress」不再直接失敗，改為 6 秒間隔自動重試（60 秒上限）
+- **HTTP 200 錯誤守衛**：提交層統一攔截 `{ok:false}` 的假成功回應，retry / fallback 路徑一併繼承
+- **`activeGenerationsCount` fallback**：上游不回傳此欄位，由 `activeGeneration` 推導（`1`/`0`）
+- **Gradio 5/6 相容**：`theme`/`css` 依版本分流傳入
 
 ---
 
