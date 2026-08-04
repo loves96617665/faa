@@ -448,9 +448,15 @@ export async function generateWithPool(env, personalAuth, opts = {}) {
     };
   } catch (e) {
     if (acquired?.account?.id) {
+      // A busy error ("Generation in progress") is not an account failure;
+      // release neutrally so errorCount/lastError are not polluted by the
+      // smartGenerate busy-wait retry loop.
+      const msg = String(e?.message || e || "").toLowerCase();
+      const busy =
+        msg.includes("generation in progress") || msg.includes("already generating");
       await releasePoolAccount(env, acquired.account.id, {
-        success: false,
-        error: e.message || String(e),
+        success: busy,
+        error: busy ? null : e.message || String(e),
       });
     }
     throw e;

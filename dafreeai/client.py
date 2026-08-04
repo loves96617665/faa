@@ -358,7 +358,20 @@ class DaFreeAiClient:
             if image_paths and spec.supports_image_ref:
                 payload["imagePaths"] = image_paths[: spec.max_image_refs]
                 payload["imagePath"] = image_paths[0]
-            return self._request("POST", "/api/generate", json=payload)
+            data = self._request("POST", "/api/generate", json=payload)
+            # Some upstream errors come back with HTTP 200 + {"error": ...};
+            # treat a non-ok body as a submit error instead of silently
+            # returning it as a successful submission. Applied on every path
+            # (primary / retry / fallback).
+            if not isinstance(data, dict) or not data.get("ok"):
+                raise DaFreeAiError(
+                    str(data.get("error") or data.get("message") or "submit failed")
+                    if isinstance(data, dict)
+                    else "submit failed",
+                    status=200,
+                    payload=data,
+                )
+            return data
 
         def _retryable(msg: str) -> bool:
             s = str(msg or "")
@@ -401,15 +414,6 @@ class DaFreeAiClient:
         while True:
             try:
                 data = _submit(model_spec.id, settings, model_spec)
-                if not isinstance(data, dict) or not data.get("ok"):
-                    # Some upstream errors come back with HTTP 200 + {"error": ...}.
-                    # Treat a non-ok body as a submit error instead of silently
-                    # returning it as a successful submission.
-                    raise DaFreeAiError(
-                        str(data.get("error") or data.get("message") or "submit failed"),
-                        status=200,
-                        payload=data,
-                    )
                 submit_error = None  # success — clear any earlier busy error
                 break
             except DaFreeAiError as exc:

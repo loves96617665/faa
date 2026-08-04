@@ -4,6 +4,8 @@
  * - When artlist pool credits=0, force quality=low for GPT image models
  * - On MODEL_NOT_ALLOWED / MODEL_LOCKED, auto-retry once with quality=low
  * - Optional fallback to nano-banana-2-lite
+ * - Busy (single global generation slot) → wait & resubmit, bounded budget
+ * - HTTP 200 + {error:...} body treated as submit error, not silent success
  * - Account pool: true parallel via generateWithPool (mode auto|pool|personal)
  * - Live /api/models overlay for resolution/quality soft-clamp
  */
@@ -25,6 +27,14 @@ function isRetryableModelError(msg) {
     /is locked/i.test(s) ||
     /MODEL_NOT_ALLOWED/i.test(s)
   );
+}
+
+function isBusyError(msg) {
+  // Upstream allows only ONE active generation per account globally. While
+  // another job runs it replies with a busy message; keep tokens specific to
+  // observed upstream wording to avoid false-positive long waits.
+  const s = String(msg || "").toLowerCase();
+  return s.includes("generation in progress") || s.includes("already generating");
 }
 
 /**
@@ -125,7 +135,7 @@ export async function smartGenerate(
   ({ model, settings } = build(modelId, q));
 
   async function tryOnce(mid, set) {
-    return generateWithPool(env, auth, {
+    const res = await generateWithPool(env, auth, {
       prompt,
       model: mid,
       settings: set,
@@ -134,6 +144,17 @@ export async function smartGenerate(
       mode,
       jobId: chatId,
     });
+    // Some upstream errors come back with HTTP 200 + {error: ...}; treat a
+    // non-ok body as a submit error instead of silently returning it as a
+    // successful submission. Applied on every path (primary / retry / fallback).
+    if (!res?.submit || !res.submit.ok) {
+      const body = res?.submit || {};
+      throw new DaFreeAiError(
+        String(body.error || body.message || "submit failed"),
+        { status: 200, payload: body }
+      );
+    }
+    return res;
   }
 
   let poolResult;
@@ -142,8 +163,35 @@ export async function smartGenerate(
   let poolAccount = null;
   let pStats = null;
 
+  // Busy retry: upstream keeps a SINGLE global generation slot per account.
+  // While another job runs it replies "Generation in progress"; the right
+  // move is to wait for the slot and resubmit the exact same payload.
+  // TOTAL_BUSY_BUDGET_MS bounds the whole busy phase so it does not silently
+  // exceed the caller's overall timeout.
+  const BUSY_INTERVAL_MS = 6_000;
+  const TOTAL_BUSY_BUDGET_MS = 60_000;
+  let busyAttempts = 0;
+  const busyStarted = Date.now();
   try {
-    poolResult = await tryOnce(modelId, settings);
+    for (;;) {
+      try {
+        poolResult = await tryOnce(modelId, settings);
+        break;
+      } catch (e0) {
+        const msg0 =
+          e0 instanceof DaFreeAiError ? e0.message : e0.message || String(e0);
+        const busyElapsed = Date.now() - busyStarted;
+        if (isBusyError(msg0) && busyElapsed < TOTAL_BUSY_BUDGET_MS) {
+          busyAttempts += 1;
+          adjustments.push(
+            `busy-wait:${busyAttempts} (generation slot busy, waiting ${BUSY_INTERVAL_MS / 1000}s)`
+          );
+          await new Promise((resolve) => setTimeout(resolve, BUSY_INTERVAL_MS));
+          continue;
+        }
+        throw e0;
+      }
+    }
   } catch (e) {
     const msg = e instanceof DaFreeAiError ? e.message : e.message || String(e);
 
