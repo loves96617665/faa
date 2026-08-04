@@ -34,6 +34,22 @@ DEFAULT_DURATION = 5
 DEFAULT_POLL = 3.0
 DEFAULT_TIMEOUT = 180.0
 
+# Shared UI styling; passed to launch() on Gradio 6+ (see main()).
+UI_CSS = """
+.status-box textarea {font-family: ui-monospace, Consolas, monospace; font-size: 13px;}
+footer {display:none !important}
+"""
+
+# Gradio 6 moved theme/css from Blocks() to launch(). Detect the major
+# version so the same code runs on both Gradio 5 (Blocks args) and 6 (launch args).
+def _gradio_major() -> int:
+    try:
+        return int(str(getattr(gr, "__version__", "6")).split(".")[0])
+    except (TypeError, ValueError):
+        return 6
+
+_GRADIO_MAJOR = _gradio_major()
+
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -811,12 +827,12 @@ def build_ui() -> gr.Blocks:
         default_res = ["1K"]
         default_res_val = "1K"
 
-    css = """
-    .status-box textarea {font-family: ui-monospace, Consolas, monospace; font-size: 13px;}
-    footer {display:none !important}
-    """
-
-    with gr.Blocks(title="DaFreeAi Studio", theme=gr.themes.Soft(), css=css) as demo:
+    # Gradio 6 moved theme/css to launch(); Gradio 5 expects them on Blocks().
+    blocks_kwargs: dict[str, Any] = {"title": "DaFreeAi Studio"}
+    if _GRADIO_MAJOR < 6:
+        blocks_kwargs["theme"] = gr.themes.Soft()
+        blocks_kwargs["css"] = UI_CSS
+    with gr.Blocks(**blocks_kwargs) as demo:
         gr.Markdown(
             """
 # DaFreeAi Studio
@@ -1051,11 +1067,16 @@ python main.py generate "a cute cat" --model nano-banana-2-lite --verbose
 def main():
     demo = build_ui()
     demo.queue(default_concurrency_limit=2)
+    launch_kwargs: dict[str, Any] = {}
+    if _GRADIO_MAJOR >= 6:
+        launch_kwargs["theme"] = gr.themes.Soft()
+        launch_kwargs["css"] = UI_CSS
     demo.launch(
         server_name="127.0.0.1",
         server_port=7860,
         inbrowser=True,
         show_error=True,
+        **launch_kwargs,
     )
 
 

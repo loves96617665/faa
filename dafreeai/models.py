@@ -177,9 +177,9 @@ MODELS: dict[str, ModelSpec] = {
         tag="PRO",
         supports_quality=True,
         supports_image_ref=False,
-        default_resolution="4K",
+        default_resolution="1K",
         supported_qualities=["low", "medium", "high"],
-        notes="FORCED 4K output · prefer quality=low · medium OK · high often locked when pool=0 · auto-retry/fallback enabled",
+        notes="prefer quality=low · high often locked when pool=0 · 4K may silently fail upstream · auto-retry/fallback enabled",
     ),
     "gpt-image-1.5": ModelSpec(
         id="gpt-image-1.5",
@@ -781,12 +781,15 @@ def build_settings(
     duration: int = 5,
     audio: bool = True,
 ) -> dict[str, Any]:
-    """Build /api/generate settings payload matching frontend behavior."""
-    # Force GPT Image 2 to always output 4K regardless of user input.
-    if model.id == "gpt-image-2" and "4K" in model.supported_resolutions:
-        res = "4K"
-    else:
-        res = resolution or model.default_resolution
+    """Build /api/generate settings payload matching frontend behavior.
+
+    NOTE (2026-08-05 recon): upstream no longer forces GPT Image 2 to 4K.
+    Live /api/models reports supportedResolutions [1K, 2K, 4K] with
+    customDimensions=true; submitting resolution=4K silently drops the job
+    (submit returns ok but the result never appears in history). Respect the
+    user-selected resolution and fall back to the model default.
+    """
+    res = resolution or model.default_resolution
     if res not in model.supported_resolutions:
         # Soft-clamp to first supported resolution instead of hard-fail when
         # live catalog shrank the set (e.g. gpt-image-1.5 → 1K only).

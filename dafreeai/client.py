@@ -237,11 +237,16 @@ class DaFreeAiClient:
 
     def history(self, *, limit: int = 20, offset: int = 0) -> dict[str, Any]:
         self.require_auth()
-        return self._request(
+        data = self._request(
             "GET",
             f"/api/history/{self.user_id}",
             params={"token": self.token, "limit": limit, "offset": offset},
         )
+        if isinstance(data, dict) and data.get("activeGenerationsCount") is None:
+            # Upstream history payload (2026-08-05 recon) has no
+            # activeGenerationsCount field; derive it for UI consumers.
+            data["activeGenerationsCount"] = 1 if data.get("activeGeneration") else 0
+        return data
 
     def delete_history(self, chat_id: str) -> dict[str, Any]:
         self.require_auth()
@@ -364,6 +369,16 @@ class DaFreeAiClient:
                 or "MODEL_NOT_ALLOWED" in s
             )
 
+        def _is_busy(msg: str) -> bool:
+            """Upstream allows only ONE active generation per account globally.
+            While another job is running it replies with a busy message; the
+            correct move is to wait and retry the exact same payload.
+            Keep tokens specific to observed upstream wording to avoid
+            false-positive long waits.
+            """
+            s = str(msg or "").lower()
+            return "generation in progress" in s or "already generating" in s
+
         def _should_fallback() -> bool:
             if fallback is True or fallback == "always":
                 return True
@@ -372,10 +387,50 @@ class DaFreeAiClient:
             return is_gpt_image(model_id)
 
         fallback_used = False
-        try:
-            data = _submit(model_spec.id, settings, model_spec)
-        except DaFreeAiError as exc:
-            msg = str(exc)
+        # Busy retry: upstream keeps a SINGLE global generation slot per account.
+        # While another job runs it replies "Generation in progress"; the right
+        # move is to wait for the slot and resubmit the exact same payload.
+        # total_busy_budget keeps the whole busy phase bounded so it does not
+        # silently exceed the caller's overall timeout.
+        busy_interval = 6.0
+        total_busy_budget = 60.0
+        busy_attempts = 0
+        busy_started = time.time()
+        submit_error: DaFreeAiError | None = None
+        data: dict[str, Any] = {}
+        while True:
+            try:
+                data = _submit(model_spec.id, settings, model_spec)
+                if not isinstance(data, dict) or not data.get("ok"):
+                    # Some upstream errors come back with HTTP 200 + {"error": ...}.
+                    # Treat a non-ok body as a submit error instead of silently
+                    # returning it as a successful submission.
+                    raise DaFreeAiError(
+                        str(data.get("error") or data.get("message") or "submit failed"),
+                        status=200,
+                        payload=data,
+                    )
+                submit_error = None  # success — clear any earlier busy error
+                break
+            except DaFreeAiError as exc:
+                submit_error = exc
+                msg = str(exc)
+                busy_elapsed = time.time() - busy_started
+                if (
+                    smart
+                    and _is_busy(msg)
+                    and busy_elapsed < total_busy_budget
+                ):
+                    busy_attempts += 1
+                    adjustments.append(
+                        f"busy-wait:{busy_attempts} (generation slot busy, waiting {busy_interval:.0f}s)"
+                    )
+                    time.sleep(busy_interval)
+                    continue
+                break
+
+        if submit_error is not None:
+            msg = str(submit_error)
             if smart and is_gpt_image(model_spec.id) and q != "low" and _retryable(msg):
                 adjustments.append(f"retry:quality={q}→low after {msg[:80]}")
                 q = "low"
@@ -413,7 +468,7 @@ class DaFreeAiClient:
                         data = _submit(model_spec.id, settings, model_spec)
                         fallback_used = True
                     else:
-                        raise
+                        raise exc2
             elif smart and _should_fallback() and _retryable(msg):
                 adjustments.append(
                     f"fallback:{model_spec.id}→nano-banana-2-lite after {msg[:80]}"
@@ -433,7 +488,7 @@ class DaFreeAiClient:
                 data = _submit(model_spec.id, settings, model_spec)
                 fallback_used = True
             else:
-                raise
+                raise submit_error
 
         data["_request"] = {
             "chatId": cid,
@@ -756,7 +811,11 @@ class DaFreeAiClient:
                 since_ts=since_ts,
             )
             active = hist.get("activeGeneration")
+            # Upstream history payload has no activeGenerationsCount field
+            # (2026-08-05 recon); derive it from activeGeneration when absent.
             active_count = hist.get("activeGenerationsCount")
+            if active_count is None:
+                active_count = 1 if active else 0
             if on_tick:
                 on_tick(
                     {

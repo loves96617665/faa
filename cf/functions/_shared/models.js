@@ -166,9 +166,9 @@ export const MODELS = {
     unlimited: true,
     tag: "PRO",
     supports_quality: true,
-    default_resolution: "4K",
+    default_resolution: "1K",
     supported_qualities: ["low", "medium", "high"],
-    notes: "FORCED 4K output · prefer quality=low · medium OK · high often locked when pool=0 · auto-retry/fallback enabled",
+    notes: "prefer quality=low · high often locked when pool=0 · 4K may silently fail upstream · auto-retry/fallback enabled",
     supports_image_ref: false,
     max_image_refs: 3,
   },
@@ -800,13 +800,11 @@ export function modelToDict(m) {
 }
 
 export function buildSettings(model, { aspect = "1:1", resolution, quality = "low", duration = 5, audio = true } = {}) {
-  // Force GPT Image 2 to always output 4K regardless of user input.
-  let res;
-  if (model.id === "gpt-image-2" && model.supported_resolutions.includes("4K")) {
-    res = "4K";
-  } else {
-    res = resolution || model.default_resolution || model.supported_resolutions[0];
-  }
+  // NOTE (2026-08-05 recon): upstream no longer forces GPT Image 2 to 4K.
+  // Live /api/models reports supportedResolutions [1K,2K,4K] + customDimensions;
+  // submitting 4K silently drops the job (submit ok, result never lands in
+  // history). Respect the user-selected resolution.
+  let res = resolution || model.default_resolution || model.supported_resolutions[0];
   if (!model.supported_resolutions.includes(res)) {
     res = model.supported_resolutions[0] || res;
   }
